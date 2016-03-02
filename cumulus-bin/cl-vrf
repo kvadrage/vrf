@@ -1,0 +1,627 @@
+#!/bin/bash
+#
+# VRF admin script
+#
+# This script is mostly a wrapper around ip and cgroups commands used to
+# create and configure VRFs. The intent is to provide a better and cleaner
+# user experience for managing VRFs on Linux. Perhaps one day this becomes
+# a subcommand of ip (ip vrf ...)
+
+PROG=cl-vrf
+
+mkdir -p /etc/iproute2/rt_tables.d
+
+################################################################################
+# utilities
+
+function dev_exists
+{
+	ip link show dev ${1} >/dev/null 2>&1
+}
+
+function get_comm
+{
+	awk '$1 == "Name:" {print $2}' /proc/$1/status
+}
+
+function l3mdev_cgroup_exists
+{
+	if [ -e /sys/fs/cgroup/l3mdev ];
+	then
+		return 0
+	fi
+
+	echo
+	echo "Cgroup for managing VRF context does not exist."
+	echo "Has l3mdev cgroup patch been applied to kernel?"
+	echo "If so has it been enabled?"
+	echo
+
+	return 1
+}
+
+################################################################################
+# vrf device management
+
+# return l3mdev cgroup task is associated with
+function vrf_get_cgroup
+{
+	local p=$1
+	local c
+
+	c=$(grep l3mdev /proc/$p/cgroup | awk -F':' '{print $NF}')
+	echo ${c/\/}
+}
+
+# get table id for vrf device
+function vrf_get_table
+{
+	ip -d link show dev ${1} 2>/dev/null | awk '$2 == "table" {print $3}'
+}
+
+# return list of VRFs that have been created
+function vrf_get_list
+{
+	local c
+	c=$(vrf_get_cgroup $$)
+
+	# if task is associated with vrf only return that vrf
+	if [ -n "$c" ]; then
+		echo $c
+		return 0
+	fi
+
+	ip -br link show type vrf | awk '{print $1}'
+}
+
+function vrf_cgroup
+{
+	local vrf=$1
+
+	l3mdev_cgroup_exists
+	[ $? -ne 0 ] && return 0
+
+	# configure cgroup
+	which cgcreate >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "cgcreate not found. cgroups tools installed?"
+		return 1
+	fi
+	cgcreate -g l3mdev:${vrf}
+
+	which cgset >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "cgset not found. cgroups tools installed?"
+		return 1
+	fi
+	cgset -r l3mdev.master-device=${vrf} ${vrf}
+}
+
+# create a VRF device, add FIB rules, set VRF link up, create id to table
+# for iproute2
+function do_vrf_create
+{
+	local vrf=$1
+	local tbid=$2
+
+	# create device
+	ip link add ${vrf} type vrf table ${tbid}
+
+	echo "${tbid}  ${vrf}" > /etc/iproute2/rt_tables.d/${vrf}.conf
+
+	# setup fib rules which direct lookups to the proper table
+	ip ru add pref 200 oif ${vrf} table ${tbid}
+	ip ru add pref 200 iif ${vrf} table ${tbid}
+	ip -6 ru add pref 200 oif ${vrf} table $tbid
+	ip -6 ru add pref 200 iif ${vrf} table $tbid
+
+	# setup default route for vrf
+	if [ "${vrf}" != "mgmt" ]; then
+		ip route add table ${tbid} unreachable default
+		ip -6 route add table ${tbid} unreachable default
+	fi
+
+	ip link set dev ${vrf} up
+
+	vrf_cgroup $vrf
+}
+
+function do_vrf_delete
+{
+	local vrf=$1
+	local tbid=$(vrf_get_table $vrf)
+
+	if [ -z "$tbid" ]; then
+		dev_exists ${vrf}
+		if [ $? -eq 0 ]; then
+			echo "Failed to lookup table id"
+		else
+			echo "vrf does not exist"
+		fi
+		return 1
+	fi
+
+	rm -f /etc/iproute2/rt_tables.d/${vrf}.conf
+
+	ip link delete dev ${vrf}
+	ip route del table ${tbid} default
+	ip -6 route del table ${tbid} default
+
+	ip ru delete oif ${vrf}
+	ip ru delete iif ${vrf}
+	ip -6 ru delete oif -${vrf}
+	ip -6 ru delete iif ${vrf}
+
+	cgdelete -g l3mdev:${vrf} 2>/dev/null
+}
+
+function vrf_list
+{
+	local tbid
+	local vrf
+
+	if [ -n "$1" ]; then
+		usage
+		return 1
+	fi
+
+	printf "\n"
+	printf "%-16s %-5s\n" "VRF" "Table"
+	printf "%-16s %-5s\n" "----------------" "-----"
+
+	vrf=$(vrf_get_list)
+	for v in $vrf
+	do
+		tbid=$(vrf_get_table $v)
+		printf "%-16s %5s\n" $v $tbid
+	done
+
+	echo
+
+	return 0
+}
+
+function vrf_add
+{
+	local vrf=${1}
+
+	if [ "$2" != "table" -o -z "$3" -o -n "$4" ];
+	then
+		usage
+		return 1
+	fi
+
+	do_vrf_create ${vrf} $3
+}
+
+function vrf_delete
+{
+	local vrf=${1}
+
+	if [ -z "$1" -o -n "$2" ];
+	then
+		usage
+		return 1
+	fi
+
+	do_vrf_delete ${vrf}
+}
+
+function vrf_exists
+{
+	local vrf=${1}
+
+	dev_exists $vrf
+}
+
+################################################################################
+# link management
+
+function link_usage
+{
+	cat <<EOF
+
+Manage association of links for VRF domains:
+    $PROG link list [<vrf-name>]
+    $PROG link add <vrf-name> dev <dev-name>
+    $PROG link remove dev <dev-name>
+EOF
+}
+
+function link_list_vrf
+{
+	local vrf=${1}
+
+	dev_exists $vrf
+	if [ $? -ne 0 ]; then
+		echo "VRF does not exist"
+		return 1
+	fi
+
+	echo
+	echo "VRF $vrf"
+	echo "--------------------"
+
+	ip -br link show master ${vrf}
+}
+
+function link_list
+{
+	local vrf=$1
+
+	if [ -n "$2" ];
+	then
+		link_usage
+		return 1
+	fi
+
+	if [ -z "$vrf" ]; then
+		vrf=$(vrf_get_list)
+	fi
+
+	for v in $vrf
+	do
+		link_list_vrf ${v}
+	done
+
+	echo
+}
+
+function link_add
+{
+	local vrf=${1}
+	local dev=$3
+
+	if [ "$2" != "dev" -o -z "$3" -o -n "$4" ];
+	then
+		link_usage
+		return 1
+	fi
+
+	dev_exists $vrf
+	if [ $? -ne 0 ]; then
+		echo "VRF does not exist"
+		return 1
+	fi
+
+	dev_exists $dev
+	if [ $? -ne 0 ]; then
+		echo "dev does not exist"
+		return 1
+	fi
+
+	ip link set dev $dev master ${vrf}
+}
+
+function link_remove
+{
+	local dev=$2
+
+	if [ "$1" != "dev" -o -z "$2" -o -n "$3" ];
+	then
+		link_usage
+		return 1
+	fi
+
+	dev_exists $dev
+	if [ $? -ne 0 ]; then
+		echo "dev does not exist"
+		return 1
+	fi
+
+	ip link set dev $dev nomaster
+}
+
+function link_cmd
+{
+	local cmd=$1
+	shift
+
+	case "$cmd" in
+		l|li|list)    link_list   $*;;
+		a|add)        link_add    $*;;
+		r|rem|remove) link_remove $*;;
+
+		help)         link_usage;;
+		*)            link_usage; return 1;;
+	esac
+}
+
+################################################################################
+# route management
+
+function route_usage
+{
+cat <<EOF
+
+Manage routes for a VRF domain:
+    $PROG route list [<vrf-name>]
+    $PROG route {add|delete} <vrf-name> <route spec>
+    $PROG route get <vrf-name> <host>
+EOF
+}
+
+function route_show_vrf
+{
+	local vrf=${1}
+
+	dev_exists $vrf
+	if [ $? -ne 0 ]; then
+		echo "VRF does not exist"
+		return 1
+	fi
+
+	local tbid=$(vrf_get_table $vrf)
+
+	echo
+	echo "VRF $vrf" 
+	echo "--------------------"
+
+	ip route show table $tbid
+	echo
+	ip -6 route show table $tbid
+}
+
+function route_show
+{
+	local vrf=${1}
+
+	if [ -n "$2" ];
+	then
+		route_usage
+		return 1
+	fi
+
+	if [ -z "$vrf" ];
+	then
+		vrf=$(vrf_get_list)
+	fi
+
+	for v in ${vrf}
+	do
+		route_show_vrf ${v}
+	done
+
+	echo
+}
+
+function route_add
+{
+	local vrf=${1}
+	shift
+
+	dev_exists $vrf
+	if [ $? -ne 0 ]; then
+		echo "VRF does not exist"
+		return 1
+	fi
+	local tbid=$(vrf_get_table $vrf)
+
+	ip route add table $tbid $*
+}
+
+function route_delete
+{
+	local vrf=${1}
+	shift
+
+	dev_exists $vrf
+	if [ $? -ne 0 ]; then
+		echo "VRF does not exist"
+		return 1
+	fi
+	local tbid=$(vrf_get_table $vrf)
+
+	ip route del table $tbid $*
+}
+
+function route_get
+{
+	local vrf=${1}
+	shift
+
+	dev_exists $vrf
+	if [ $? -ne 0 ]; then
+		echo "VRF does not exist"
+		return 1
+	fi
+
+	ip route get oif $vrf $*
+}
+
+function route_cmd
+{
+	local cmd=$1
+	shift
+
+	case "$cmd" in
+		s|sh|show|li|ls|list)  route_show $*;;
+		a|add)        route_add $*;;
+		d|del|delete) route_delete $*;;
+		get)          route_get $*;;
+		help)         route_usage;;
+		*)            route_usage; return 1;;
+	esac
+}
+
+
+################################################################################
+# task management
+
+function task_usage
+{
+	cat <<EOF
+
+Manage tasks and VRF domain asociation:
+    $PROG task list [<vrf-name>]
+    $PROG task identify <pid>
+    $PROG task set <vrf-name> <process id>
+    $PROG task exec <vrf-name> <command>
+EOF
+}
+
+function task_list_vrf
+{
+	local vrf=$1
+
+	printf "\n"
+	printf "VRF %s\n" $vrf
+	echo "------------------------------"
+
+	local f="/sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs"
+	if [ ! -e $f ]; then
+		echo "No cgroup for vrf"
+	else
+		while read p
+		do
+			c=$(get_comm $p)
+			printf "%-16s  %5s\n" $c $p
+		done < $f
+	fi
+}
+
+function task_identify
+{
+	# show cgroup for specific task
+	[ "$1" = "pid" ] && shift
+
+	pid="$*"
+	[ -n "$pid" ] && pid=$PPID
+
+	for p in "$pid"; do
+		vrf_get_cgroup $pid
+	done
+}
+
+function task_list
+{
+	local vrf
+
+	# show all tasks in 1 or more VRFs
+	vrf="$*"
+	if [ -z "$vrf" ]; then
+		vrf=$(vrf_get_list)
+	fi
+
+	for v in ${vrf}
+	do
+		task_list_vrf ${v}
+	done
+
+	echo
+}
+
+function task_set
+{
+	local vrf=$1
+	local pid=$2
+
+	if [ -z "$2" -o -n "$3" ]; then
+		task_usage
+		return 1
+	fi
+
+	dev_exists $vrf
+	if [ $? -ne 0 ]; then
+		echo "VRF does not exist"
+		return 1
+	fi
+
+	kill -0 $pid >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "Process does not exist"
+		return 1
+	fi
+
+	echo $pid >> /sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs
+}
+
+function task_exec
+{
+	local vrf=$1
+	shift
+
+	dev_exists $vrf
+	if [ $? -ne 0 ]; then
+		echo "VRF does not exist"
+		return 1
+	fi
+
+	which cgexec >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "cgexec not found. cgroups tools installed?"
+		return 1
+	fi
+
+	cgexec -g l3mdev:${vrf} $*
+}
+
+function task_cmd
+{
+	local cmd=$1
+	shift
+
+	l3mdev_cgroup_exists
+	[ $? -ne 0 ] && return 1
+
+	case "$cmd" in
+		sh|show|li|list|ls) task_list $*;;
+		id|identify) task_identify $*;;
+		se|set)      task_set $*;;
+		ex|exec)     task_exec $*;;
+
+		help) task_usage;;
+		*) task_usage; return 1;;
+	esac
+}
+
+################################################################################
+# usage
+
+function usage
+{
+	cat <<EOF
+vrf <OPTS>
+
+Manage VRF domains:
+    $PROG list
+    $PROG add <vrf-name> table <table id>
+    $PROG delete <vrf-name>
+EOF
+	link_usage
+	route_usage
+	task_usage
+}
+
+################################################################################
+# main
+
+CMD=$1
+shift
+case "$CMD" in
+	l|list)       vrf_list $*;;
+	a|add)        vrf_add $*;;
+	d|del|delete) vrf_delete $*;;
+
+	# used by ifupdown2 config for setting up cgroup
+	# cl-vrf cgroup <vrf-name>
+	c|cgroup)     vrf_cgroup $*;;
+
+	# bash profile scripts for checking if a vrf exists
+	# cl-vrf exists <vrf-name>
+	e|ex|exists)  vrf_exists $*;;
+
+	l|li|link)  link_cmd $*;;
+	r|ro|route) route_cmd $*;;
+	t|ta|task)  task_cmd $*;;
+
+	# allowed shortcuts
+	# cl-vrf exec <vrf> <cmd>
+	exec)       task_cmd  "exec $*";;
+	# cl-vrf identify   (show VRF for task)
+	identify)   task_identify "$*";;
+
+	help) usage; exit 0;;
+	*) usage; exit 1;;
+esac
+

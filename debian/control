@@ -1,0 +1,14 @@
+Source: cl-vrf
+Section: net
+Priority: optional
+Maintainer: Cumulus Networks <support@cumulusnetworks.com>
+Build-Depends: debhelper (>=9)
+Standards-Version: 3.9.6
+Homepage: http://www.cumulusnetworks.com
+
+Package: cl-vrf
+Architecture: all
+Depends: iproute2 cgroup-tools
+Description: Cumulus Linux tools for VRF
+ This package provides tools (bash profile and commands) for configuring VRF
+ (Virtual Routing and Forwarding) for Cumulus Linux.
