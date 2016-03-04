@@ -12,7 +12,7 @@
 build:
 
 %:
-	dh $@ --with=config-package
+	dh $@
 
 
 override_dh_pysupport:
