@@ -1,24 +1,19 @@
-#!/bin/sh
+# default task to management VRF if it exists and task is not running
+# in a VRF context
+[ -n "$VRF" ] && exit 0
 
-# export VRF symbol noting which VRF the process was started in
-# export get_vrf function and PS1 for setting prompt.
-#
-# default task to management VRF if task is not running in a
-# VRF context
+MGMT_VRF=mgmt
+[ -e /etc/vrf.conf ] && . /etc/vrf.conf
 
-function get_vrf
-{
-	local vrf=$(/usr/cumulus/bin/cl-vrf.sh task show pid $$)
-	[ -n "$vrf" ] && echo "[$vrf]"
-}
-
-/usr/cumulus/bin/cl-vrf.sh exists mmgt
+/usr/cumulus/bin/cl-vrf exists $MGMT_VRF
 if [ $? -eq 0 ]; then
-	VRF=$(get_vrf)
+	VRF=$(/usr/cumulus/bin/cl-vrf identify)
 	if [ -z "$VRF" ]; then
-		/usr/cumulus/bin/cl-vrf.sh task move mgmt $$
+		/usr/cumulus/bin/cl-vrf task set $MGMT_VRF $$
 	fi
 fi
-export VRF=$(get_vrf)
 
-PS1="$(get_vrf)\u@\h:\w\$ "
+VRF=$(/usr/cumulus/bin/cl-vrf identify)
+export VRF
+
+PS1="\$(/usr/cumulus/bin/cl-vrf identify)\u@\h:\w\$ "

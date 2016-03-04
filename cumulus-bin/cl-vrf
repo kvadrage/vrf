@@ -50,6 +50,7 @@ function vrf_get_cgroup
 	local c
 
 	c=$(grep l3mdev /proc/$p/cgroup | awk -F':' '{print $NF}')
+	# strip leading '/'; makes default VRF ""
 	echo ${c/\/}
 }
 
@@ -210,6 +211,8 @@ function vrf_delete
 function vrf_exists
 {
 	local vrf=${1}
+
+	[ "$vrf" = "default" ] && return 0
 
 	dev_exists $vrf
 }
@@ -480,17 +483,20 @@ function task_list_vrf
 	fi
 }
 
+# show VRF for specific task
 function task_identify
 {
-	# show cgroup for specific task
+	# allow syntax to be ... pid <pid>
 	[ "$1" = "pid" ] && shift
+	pid=$*
 
-	pid="$*"
-	[ -n "$pid" ] && pid=$PPID
+	# default to parent PID (not this commands PID)
+	[ -z "$pid" ] && pid=$PPID
 
-	for p in "$pid"; do
-		vrf_get_cgroup $pid
-	done
+	c=$(vrf_get_cgroup $pid)
+	if [ -n "$c" ]; then
+		echo "[$c] "
+	fi
 }
 
 function task_list
@@ -521,7 +527,7 @@ function task_set
 		return 1
 	fi
 
-	dev_exists $vrf
+	vrf_exists $vrf
 	if [ $? -ne 0 ]; then
 		echo "VRF does not exist"
 		return 1
@@ -533,7 +539,11 @@ function task_set
 		return 1
 	fi
 
-	echo $pid >> /sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs
+	if [ "$vrf" = "default" ]; then
+		echo $pid >> /sys/fs/cgroup/l3mdev/cgroup.procs
+	else
+		echo $pid >> /sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs
+	fi
 }
 
 function task_exec
@@ -541,7 +551,7 @@ function task_exec
 	local vrf=$1
 	shift
 
-	dev_exists $vrf
+	vrf_exists $vrf
 	if [ $? -ne 0 ]; then
 		echo "VRF does not exist"
 		return 1
@@ -553,7 +563,11 @@ function task_exec
 		return 1
 	fi
 
-	cgexec -g l3mdev:${vrf} $*
+	if [ "$vrf" = "default" ]; then
+		cgexec -g l3mdev:/ $*
+	else
+		cgexec -g l3mdev:${vrf} $*
+	fi
 }
 
 function task_cmd
@@ -581,7 +595,7 @@ function task_cmd
 function usage
 {
 	cat <<EOF
-vrf <OPTS>
+$PROG <OPTS>
 
 Manage VRF domains:
     $PROG list
@@ -599,7 +613,25 @@ EOF
 CMD=$1
 shift
 case "$CMD" in
-	l|list)       vrf_list $*;;
+	# l and li can be list or link; figure out which by arg list
+	l|li)
+		if [ -z "$1" ]; then
+			vrf_list
+	 	else
+			link_cmd $*
+		fi
+		;;
+
+	# e and ex can be exists or exec; figure out which by arg list
+	e|ex)
+		if [ -z "$2" ]; then
+			vrf_exists $*
+	 	else
+			task_cmd  exec $*
+		fi
+		;;
+
+	list|sh|show) vrf_list $*;;
 	a|add)        vrf_add $*;;
 	d|del|delete) vrf_delete $*;;
 
@@ -611,15 +643,16 @@ case "$CMD" in
 	# cl-vrf exists <vrf-name>
 	e|ex|exists)  vrf_exists $*;;
 
-	l|li|link)  link_cmd $*;;
+	link)  link_cmd $*;;
 	r|ro|route) route_cmd $*;;
 	t|ta|task)  task_cmd $*;;
 
 	# allowed shortcuts
 	# cl-vrf exec <vrf> <cmd>
-	exec)       task_cmd  "exec $*";;
+	exec)       task_cmd  exec $*;;
+
 	# cl-vrf identify   (show VRF for task)
-	identify)   task_identify "$*";;
+	id|identify)   task_identify $*;;
 
 	help) usage; exit 0;;
 	*) usage; exit 1;;
