@@ -345,7 +345,7 @@ function link_cmd
 	shift
 
 	case "$cmd" in
-		l||li|ls|list) link_list   $*;;
+		l|li|ls|list) link_list   $*;;
 		a|add)        link_add    $*;;
 		r|rem|remove) link_remove $*;;
 
