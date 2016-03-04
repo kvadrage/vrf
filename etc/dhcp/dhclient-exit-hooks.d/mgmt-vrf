@@ -1,5 +1,3 @@
-#!/bin/sh
-
 MGMT_VRF=mgmt
 [ -e /etc/vrf.conf ] && . /etc/vrf.conf
 
@@ -7,6 +5,23 @@ MGMT_VRF=mgmt
 [ $? -ne 0 ] && exit 0
 
 MGMT_TABLE=$(/usr/cumulus/bin/cl-vrf table $MGMT_VRF)
+
+#[ -r /var/lib/cl-mgmtvrf/mgmtvrf.conf ] && . /var/lib/cl-mgmtvrf/mgmtvrf.conf
+
+# Cleanup DNS state
+if [ -n "$old_domain_name_servers" ]; then
+    # Delete rules associated with old DNS server
+    for dns in $old_domain_name_servers; do
+        ip rule del to $dns lookup mgmt prio 99 2>&1 >/dev/null
+    done
+fi
+
+# Add rules to handle DNS server
+if [ -n "$new_domain_name_servers" ]; then
+    for dns in $new_domain_name_servers; do
+        ip rule add to $dns lookup mgmt prio 99 2>&1 >/dev/null
+    done
+fi
 
 case "$reason" in
 
@@ -78,5 +93,3 @@ case "$reason" in
 
         ;;
 esac
-
-exit_with_hooks 0
