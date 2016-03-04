@@ -24,6 +24,9 @@ function get_comm
 	awk '$1 == "Name:" {print $2}' /proc/$1/status
 }
 
+################################################################################
+# cgroup functions
+
 function l3mdev_cgroup_exists
 {
 	if [ -e /sys/fs/cgroup/l3mdev ];
@@ -40,9 +43,6 @@ function l3mdev_cgroup_exists
 	return 1
 }
 
-################################################################################
-# vrf device management
-
 # return l3mdev cgroup task is associated with
 function vrf_get_cgroup
 {
@@ -53,6 +53,32 @@ function vrf_get_cgroup
 	# strip leading '/'; makes default VRF ""
 	echo ${c/\/}
 }
+
+function vrf_cgroup
+{
+	local vrf=$1
+
+	l3mdev_cgroup_exists
+	[ $? -ne 0 ] && return 0
+
+	# configure cgroup
+	which cgcreate >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "cgcreate not found. cgroups tools installed?"
+		return 1
+	fi
+	cgcreate -g l3mdev:${vrf}
+
+	which cgset >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "cgset not found. cgroups tools installed?"
+		return 1
+	fi
+	cgset -r l3mdev.master-device=${vrf} ${vrf}
+}
+
+################################################################################
+# vrf device functions
 
 # get table id for vrf device
 function vrf_get_table
@@ -94,29 +120,6 @@ function vrf_get_list
 	fi
 
 	ip -br link show type vrf | awk '{print $1}'
-}
-
-function vrf_cgroup
-{
-	local vrf=$1
-
-	l3mdev_cgroup_exists
-	[ $? -ne 0 ] && return 0
-
-	# configure cgroup
-	which cgcreate >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "cgcreate not found. cgroups tools installed?"
-		return 1
-	fi
-	cgcreate -g l3mdev:${vrf}
-
-	which cgset >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "cgset not found. cgroups tools installed?"
-		return 1
-	fi
-	cgset -r l3mdev.master-device=${vrf} ${vrf}
 }
 
 # create a VRF device, add FIB rules, set VRF link up, create id to table
@@ -342,7 +345,7 @@ function link_cmd
 	shift
 
 	case "$cmd" in
-		l|li|list)    link_list   $*;;
+		l||li|ls|list) link_list   $*;;
 		a|add)        link_add    $*;;
 		r|rem|remove) link_remove $*;;
 
@@ -490,7 +493,7 @@ function task_list_vrf
 
 	printf "\n"
 	printf "VRF %s\n" $vrf
-	echo "------------------------------"
+	echo "-----------------------"
 
 	local f="/sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs"
 	if [ ! -e $f ]; then
@@ -652,7 +655,7 @@ case "$CMD" in
 		fi
 		;;
 
-	list|sh|show) vrf_list $*;;
+	ls|list|sh|show) vrf_list $*;;
 	a|add)        vrf_add $*;;
 	d|del|delete) vrf_delete $*;;
 
@@ -661,11 +664,11 @@ case "$CMD" in
 	c|cgroup)     vrf_cgroup $*;;
 
 	# return table id for VRF. Used by dhclient hook
-	t|table)      vrf_table $*;;
+	table)      vrf_table $*;;
 
 	# bash profile scripts for checking if a vrf exists
 	# cl-vrf exists <vrf-name>
-	e|ex|exists)  vrf_exists $*;;
+	exists)  vrf_exists $*;;
 
 	link)  link_cmd $*;;
 	r|ro|route) route_cmd $*;;
@@ -681,4 +684,3 @@ case "$CMD" in
 	help) usage; exit 0;;
 	*) usage; exit 1;;
 esac
-

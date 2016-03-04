@@ -24,7 +24,6 @@ if [ -n "$new_domain_name_servers" ]; then
 fi
 
 case "$reason" in
-
     BOUND|RENEW|REBIND|REBOOT)
         if [ -z "$old_ip_address" ] ||
            [ "$old_ip_address" != "$new_ip_address" ] ||
