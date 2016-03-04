@@ -57,7 +57,28 @@ function vrf_get_cgroup
 # get table id for vrf device
 function vrf_get_table
 {
-	ip -d link show dev ${1} 2>/dev/null | awk '$2 == "table" {print $3}'
+	ip -d link show dev ${1} 2>/dev/null | \
+	awk '{
+		for (i=1; i<NF; ++i) {
+			if ($i == "table") {
+				j=i+1
+				id=$j
+			}
+		}
+	} END { print id }'
+}
+
+function vrf_table
+{
+	local vrf=$1
+	
+	vrf_exists $vrf
+	if [ $? -ne 0 ]; then
+		echo "VRF does not exist"
+		return 1
+	fi
+
+	vrf_get_table $vrf
 }
 
 # return list of VRFs that have been created
@@ -638,6 +659,9 @@ case "$CMD" in
 	# used by ifupdown2 config for setting up cgroup
 	# cl-vrf cgroup <vrf-name>
 	c|cgroup)     vrf_cgroup $*;;
+
+	# return table id for VRF. Used by dhclient hook
+	t|table)      vrf_table $*;;
 
 	# bash profile scripts for checking if a vrf exists
 	# cl-vrf exists <vrf-name>
