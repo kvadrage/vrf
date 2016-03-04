@@ -1,0 +1,206 @@
+#!/usr/bin/env python
+
+import argparse
+import logging
+import os
+import re
+import subprocess
+import sys
+import shutil
+
+iface_by_name = {}
+iface_by_index = {}
+
+CONF_DIR='/var/lib/cl-mgmtvrf'
+CONF_FILE='mgmtvrf.conf'
+
+def valid_interface(ifname):
+    if ifname in iface_by_name:
+        return True
+    return False
+
+
+def get_default_iif_index():
+    for line in subprocess.check_output('sysctl -a --pattern net.ipv4.default_iif', shell=True).splitlines():
+        # This will return the following so split by whitespace and return the
+        # last stop in the list
+        #   net.ipv4.default_iif = 1
+        return int(line.split()[-1])
+    return None
+
+
+def cl_ns_mgmt_enabled():
+    """
+    Return True if the user is using cl-ns-mgmt
+    """
+    output = subprocess.check_output(['ip', 'netns', 'list'])
+
+    for line in output.splitlines():
+        if line == 'mgmt':
+            return True
+
+    return False
+
+
+def cl_ns_mgmtvrf_enabled():
+    for line in subprocess.check_output('sysctl -a --pattern net.ipv4.default_iif', shell=True).splitlines():
+        if int(line.split()[-1]) != 1:
+            return True
+    return False
+
+
+def cl_ns_mgmtvrf_enabled_for_iface(ifname):
+    """
+    Return True if Management VRF is enable for 'ifname'
+    """
+    return True if iface_by_name[ifname] == get_default_iif_index() and os.path.exists('/var/run/cl-mgmtvrf') else False
+
+
+def log_error_and_exit(msg):
+    log.error(msg)
+    sys.stdout.write('%s\n' % msg)
+    sys.exit(1)
+
+
+def enable(ifname):
+
+    if cl_ns_mgmtvrf_enabled():
+        if cl_ns_mgmtvrf_enabled_for_iface(ifname):
+            log_error_and_exit('Management VRF is already enabled for interface %s, nothing to do' % ifname)
+        else:
+            log_error_and_exit('Management VRF is already enabled for interface %s, you must --disable that interface first ' % iface_by_index[get_default_iif_index()])
+
+    ifindex = iface_by_name[ifname]
+    log.info("enable for %s with ifindex %d" % (ifname, ifindex))
+
+    sys.stdout.write("""
+=======================================================
+WARNING !! WARNING !! WARNING !! WARNING !! WARNING !!
+You're enabling an experimental feature! If you have
+accidentally run this command, you can undo the effects
+by running 'cl-mgmtvrf --disable'
+=======================================================
+""")
+
+    with open('/etc/sysctl.d/cl-mgmtvrf.conf', 'w') as fh:
+        fh.write("net.ipv4.default_iif=%d\n" % ifindex)
+        fh.write("net.ipv6.route.default_iif=%d\n" % ifindex)
+        fh.write("net.ipv4.ipv4_pick_iif_based_on_saddr=1\n")
+        fh.write("net.ipv6.ipv6_pick_iif_based_on_saddr=1\n")
+        fh.write("net.ipv4.icmp_errors_use_inbound_ifaddr=1\n")
+
+    if not os.path.exists(CONF_DIR):
+        os.makedirs(CONF_DIR)
+        
+    with open('%s/%s' % (CONF_DIR, CONF_FILE), 'w') as fh:
+        fh.write("MGMTVRF_IF=%s\n" % ifname)
+
+    for cmd in (
+        'sed -i -e \'/^[0-9]*[ 	]*mgmt/d\' /etc/iproute2/rt_tables',
+        'echo \'252	mgmt\' >> /etc/iproute2/rt_tables',
+        'sysctl -p /etc/sysctl.d/cl-mgmtvrf.conf',
+        'service cl-mgmtvrf start',
+        'sudo update-rc.d cl-mgmtvrf start 10 S stop 10 0 6',
+        'nohup bash -c "sudo ifdown %s && sudo ifup %s >& /dev/null &"' % (ifname, ifname),
+        'ip route flush cache'):
+        try:
+            log.info(cmd)
+            log.debug(subprocess.check_output(cmd, shell=True,
+                                              stderr=subprocess.STDOUT))
+        except subprocess.CalledProcessError as e:
+            log.debug(e)
+
+
+def disable(ifname):
+    log.info("disable for %s" % ifname)
+
+    mgmttable = subprocess.check_output("grep mgmt /etc/iproute2/rt_tables | awk '{print $1}'", shell=True).strip()
+    deftable = subprocess.check_output("grep mgmt /etc/iproute2/rt_tables | awk '{print $1}'", shell=True).strip()
+
+    if mgmttable != deftable:
+        log.info("ip route flush table mgmt")
+        log.debug(subprocess.check_output('ip route flush table mgmt', shell=True))
+
+    if os.path.exists(CONF_DIR):
+        shutil.rmtree(CONF_DIR)
+
+    for cmd in (
+        'service cl-mgmtvrf stop',
+        'sed -i -e \'/^[0-9]*[ 	]*mgmt/d\' -e \'/^[0-9]*[ 	]*main/i \\254	mgmt\' /etc/iproute2/rt_tables',
+        'sysctl net.ipv4.default_iif=1',
+        'sysctl net.ipv6.route.default_iif=1',
+        'sysctl net.ipv4.ipv4_pick_iif_based_on_saddr=0',
+        'sysctl net.ipv6.ipv6_pick_iif_based_on_saddr=0',
+        'sysctl net.ipv4.icmp_errors_use_inbound_ifaddr=0',
+        'rm -rf /etc/sysctl.d/cl-mgmtvrf.conf',
+        'sudo update-rc.d -f cl-mgmtvrf remove',
+        'nohup bash -c "sudo ifdown %s && sudo ifup %s >& /dev/null &"' % (ifname, ifname),
+        'ip route flush cache'):
+        try:
+            log.info(cmd)
+            log.debug(subprocess.check_output(cmd, shell=True,
+                                              stderr=subprocess.STDOUT))
+        except subprocess.CalledProcessError as e:
+            log.debug(e)
+
+if __name__ == '__main__':
+
+    parser  = argparse.ArgumentParser(description='Configure management VRF')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-e', '--enable', help='Enable management VRF', action='store_true')
+    group.add_argument('-d', '--disable', help='Disable management VRF', action='store_true')
+    group.add_argument('-s', '--status', help='Display if management VRF is enabled', action='store_true')
+    args = parser.parse_args()
+    mgmt_interface = 'eth0'
+
+    # Verify user is root or using sudo...do not use log_error_and_exit()
+    # here because if we are non-root we will not have permissions to write
+    # to the log file
+    euid = os.geteuid()
+    if euid != 0:
+        sys.stdout.write('ERROR: You must be root to run this script\n')
+        sys.exit(1)
+
+    logfile = '/var/log/cl-mgmtvrf.log'
+    logging.basicConfig(filename=logfile,
+                        level=logging.DEBUG,
+                        format='%(asctime)s %(levelname)8s: %(message)s')
+    log = logging.getLogger(__name__)
+
+    if args.status:
+        if cl_ns_mgmtvrf_enabled():
+            sys.stdout.write('Management VRF is enabled\n')
+            sys.exit(0)
+        else:
+            sys.stdout.write('Management VRF is NOT enabled\n')
+            sys.exit(1)
+
+    # Don't cross the streams
+    # -Dr. Egon Spengler
+    if cl_ns_mgmt_enabled():
+        log_error_and_exit('ERROR: cl-ns-mgmt and Management VRF cannot be used at the same time')
+
+    # Build dictionaries of all interfaces by name and by index
+    for line in subprocess.check_output('ip --oneline link show', shell=True).splitlines():
+        re_swp = re.match('^(\d+):\s+(\S+): ', line)
+        if re_swp:
+            ifindex = int(re_swp.group(1))
+            ifname = re_swp.group(2)
+            iface_by_name[ifname] = ifindex
+            iface_by_index[ifindex] = ifname
+
+
+    # NOTE: originally we allowed the user to specify the interface via the
+    # command line but we removed that option and only allow eth0 for now.
+    # It can't hurt to verify that eth0 is present.
+    #
+    # Verify the interface specified is valid
+    if not valid_interface(mgmt_interface):
+        log_error_and_exit('ERROR: %s is not a valid interface' % mgmt_interface)
+
+    if args.enable:
+        enable(mgmt_interface)
+    elif args.disable:
+        disable(mgmt_interface)
+    else:
+        log_error_and_exit('ERROR: %s' % parser.format_help())
