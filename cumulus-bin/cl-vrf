@@ -510,6 +510,13 @@ function task_list_vrf
 # show VRF for specific task
 function task_identify
 {
+	local do_prompt=0
+
+	if [ "$1" = "prompt" ]; then
+		do_prompt=1
+		shift
+	fi
+
 	# allow syntax to be ... pid <pid>
 	[ "$1" = "pid" ] && shift
 	pid=$*
@@ -519,7 +526,11 @@ function task_identify
 
 	c=$(vrf_get_cgroup $pid)
 	if [ -n "$c" ]; then
-		echo "[$c] "
+		if [ $do_prompt = "1" ]; then
+			echo "[vrf $c] "
+		else
+			echo "$c"
+		fi
 	fi
 }
 

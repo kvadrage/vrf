@@ -16,4 +16,4 @@ fi
 VRF=$(/usr/cumulus/bin/cl-vrf identify)
 export VRF
 
-PS1="\$(/usr/cumulus/bin/cl-vrf identify)\u@\h:\w\$ "
+PS1="\$(/usr/cumulus/bin/cl-vrf identify prompt)\u@\h:\w\$ "
