@@ -8,7 +8,7 @@ Homepage: http://www.cumulusnetworks.com
 
 Package: cumulus-vrf
 Architecture: all
-Depends: iproute2, cgroup-tools
+Depends: iproute2, cgroup-tools, python, ${misc:Depends}
 Description: Cumulus Linux tools for VRF
  This package provides tools (bash profile and commands) for configuring VRF
  (Virtual Routing and Forwarding) for Cumulus Linux.
