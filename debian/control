@@ -1,4 +1,4 @@
-Source: cl-vrf
+Source: cumulus-vrf
 Section: net
 Priority: optional
 Maintainer: Cumulus Networks <support@cumulusnetworks.com>
@@ -6,7 +6,7 @@ Build-Depends: debhelper (>=9)
 Standards-Version: 3.9.6
 Homepage: http://www.cumulusnetworks.com
 
-Package: cl-vrf
+Package: cumulus-vrf
 Architecture: all
 Depends: iproute2, cgroup-tools
 Description: Cumulus Linux tools for VRF
