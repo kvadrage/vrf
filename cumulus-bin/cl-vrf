@@ -111,12 +111,15 @@ function vrf_table
 function vrf_get_list
 {
 	local c
-	c=$(vrf_get_cgroup $$)
 
-	# if task is associated with vrf only return that vrf
-	if [ -n "$c" ]; then
-		echo $c
-		return 0
+	if [ "$1" != "-a" ]; then
+		c=$(vrf_get_cgroup $$)
+
+		# if task is associated with vrf only return that vrf
+		if [ -n "$c" ]; then
+			echo $c
+			return 0
+		fi
 	fi
 
 	ip -br link show type vrf | awk '{print $1}'
@@ -194,7 +197,7 @@ function vrf_list
 	printf "%-16s %-5s\n" "VRF" "Table"
 	printf "%-16s %-5s\n" "----------------" "-----"
 
-	vrf=$(vrf_get_list)
+	vrf=$(vrf_get_list -a)
 	for v in $vrf
 	do
 		tbid=$(vrf_get_table $v)
