@@ -6,7 +6,7 @@ MGMT_VRF=mgmt
 [ -e /etc/vrf.conf ] && . /etc/vrf.conf
 
 /usr/cumulus/bin/cl-vrf exists $MGMT_VRF
-if [ $? -eq 0 ]; then
+if [ $? -eq 0 -a $UID -eq 0 ]; then
 	VRF=$(/usr/cumulus/bin/cl-vrf identify)
 	if [ -z "$VRF" ]; then
 		/usr/cumulus/bin/cl-vrf task set $MGMT_VRF $$
