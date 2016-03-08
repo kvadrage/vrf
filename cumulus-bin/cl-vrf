@@ -560,7 +560,7 @@ function task_set
 	local vrf=$1
 	local pid=$2
 
-	if [ -z "$2" -o -n "$3" ]; then
+	if [ -n "$3" ]; then
 		task_usage
 		return 1
 	fi
@@ -570,6 +570,7 @@ function task_set
 		echo "VRF does not exist"
 		return 1
 	fi
+	[ -z "$pid" ] && pid=$PPID
 
 	kill -0 $pid >/dev/null 2>&1
 	if [ $? -ne 0 ]; then
