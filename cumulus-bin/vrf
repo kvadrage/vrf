@@ -7,7 +7,7 @@
 # user experience for managing VRFs on Linux. Perhaps one day this becomes
 # a subcommand of ip (ip vrf ...)
 
-PROG=cl-vrf
+PROG=vrf
 
 mkdir -p /etc/iproute2/rt_tables.d
 
@@ -675,14 +675,14 @@ case "$CMD" in
 	d|del|delete) vrf_delete $*;;
 
 	# used by ifupdown2 config for setting up cgroup
-	# cl-vrf cgroup <vrf-name>
+	# vrf cgroup <vrf-name>
 	c|cgroup)     vrf_cgroup $*;;
 
 	# return table id for VRF. Used by dhclient hook
 	table)      vrf_table $*;;
 
 	# bash profile scripts for checking if a vrf exists
-	# cl-vrf exists <vrf-name>
+	# vrf exists <vrf-name>
 	exists)  vrf_exists $*;;
 
 	link)  link_cmd $*;;
@@ -690,10 +690,10 @@ case "$CMD" in
 	t|ta|task)  task_cmd $*;;
 
 	# allowed shortcuts
-	# cl-vrf exec <vrf> <cmd>
+	# vrf exec <vrf> <cmd>
 	exec)       task_cmd  exec $*;;
 
-	# cl-vrf identify   (show VRF for task)
+	# vrf identify   (show VRF for task)
 	id|identify)   task_identify $*;;
 
 	help) usage; exit 0;;
