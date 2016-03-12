@@ -1,2 +1,3 @@
 cumulus-bin/*		usr/cumulus/bin
+systemd/*		lib/systemd/system
 etc/*			etc/

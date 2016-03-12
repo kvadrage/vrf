@@ -1,0 +1,10 @@
+#!/bin/sh
+
+VRF=$1
+[ -z "$VRF" ] && VRF=mgmt
+
+XDG_RUNTIME_DIR=/run/systemd-${VRF}
+export XDG_RUNTIME_DIR
+
+/usr/cumulus/bin/cl-vrf task set $VRF $$
+exec /bin/systemd --user 
