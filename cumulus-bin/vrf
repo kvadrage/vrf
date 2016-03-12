@@ -7,7 +7,7 @@
 # user experience for managing VRFs on Linux. Perhaps one day this becomes
 # a subcommand of ip (ip vrf ...)
 
-PROG=vrf
+PROG=${0##*/}
 
 mkdir -p /etc/iproute2/rt_tables.d
 
@@ -22,6 +22,21 @@ function dev_exists
 function get_comm
 {
 	awk '$1 == "Name:" {print $2}' /proc/$1/status
+}
+
+function normalize_vrf_name
+{
+	local vrf=$1
+
+	[ -z "$vrf" ] && return 1
+
+	case "$vrf" in
+		*vrf*) name=$vrf;;
+		*) name=${vrf}-vrf;;
+	esac
+
+	echo $name
+	return 0
 }
 
 ################################################################################
@@ -79,6 +94,15 @@ function vrf_cgroup
 
 ################################################################################
 # vrf device functions
+
+function vrf_exists
+{
+	local vrf=${1}
+
+	[ "$vrf" = "default" ] && return 0
+
+	dev_exists $vrf
+}
 
 # get table id for vrf device
 function vrf_get_table
@@ -233,15 +257,6 @@ function vrf_delete
 	fi
 
 	do_vrf_delete ${vrf}
-}
-
-function vrf_exists
-{
-	local vrf=${1}
-
-	[ "$vrf" = "default" ] && return 0
-
-	dev_exists $vrf
 }
 
 ################################################################################
@@ -483,10 +498,9 @@ function task_usage
 	cat <<EOF
 
 Manage tasks and VRF domain asociation:
+    $PROG task exec <vrf-name> <command>
     $PROG task list [<vrf-name>]
     $PROG task identify <pid>
-    $PROG task set <vrf-name> <process id>
-    $PROG task exec <vrf-name> <command>
 EOF
 }
 
@@ -530,10 +544,13 @@ function task_identify
 	c=$(vrf_get_cgroup $pid)
 	if [ -n "$c" ]; then
 		if [ $do_prompt = "1" ]; then
-			echo "[vrf $c] "
+			c=$(normalize_vrf_name $c)
+			echo "[$c] "
 		else
 			echo "$c"
 		fi
+	elif [ $do_prompt != "1" ]; then
+		echo "default"
 	fi
 }
 
@@ -620,7 +637,12 @@ function task_cmd
 	case "$cmd" in
 		sh|show|li|list|ls) task_list $*;;
 		id|identify) task_identify $*;;
-		se|set)      task_set $*;;
+
+		# used for systemd; needs to be hidden as there are
+		# caveats to change the vrf association of a running
+		# task
+		set)         task_set $*;;
+
 		ex|exec)     task_exec $*;;
 
 		help) task_usage;;
