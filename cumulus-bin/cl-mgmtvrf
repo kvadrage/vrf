@@ -71,6 +71,7 @@ def enable(ifname, mgmt_vrf_name, mgmt_vrf_table):
             fh.write("allow-%s %s\n" % (mgmt_vrf_name, ifname))
             fh.write("auto %s\n" % mgmt_vrf_name)
             fh.write("iface %s\n" % mgmt_vrf_name)
+            fh.write("\taddress 127.0.0.1/8\n")
             fh.write("\tvrf-table %s\n" % mgmt_vrf_table)
             fh.write("\tvrf-default-route no\n")
             fh.write("\n")
