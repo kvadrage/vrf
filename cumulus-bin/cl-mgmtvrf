@@ -67,15 +67,6 @@ def enable(ifname, mgmt_vrf_name, mgmt_vrf_table):
     if not mgmtvrf_inf:
         log.info("enable for %s" % mgmtvrf_inf)
 
-        sys.stdout.write("""
-=======================================================
-WARNING !! WARNING !! WARNING !! WARNING !! WARNING !!
-You're enabling an experimental feature! If you have
-accidentally run this command, you can undo the effects
-by running 'cl-mgmtvrf --disable'
-=======================================================
-""")
-
         with open('/etc/network/interfaces.d/mgmt-vrf.cl', 'w') as fh:
             fh.write("allow-%s %s\n" % (mgmt_vrf_name, ifname))
             fh.write("auto %s\n" % mgmt_vrf_name)
