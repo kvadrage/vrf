@@ -31,19 +31,6 @@ def cl_mgmtvrf_enabled(mgmt_vrf_name):
         return None
 
 
-def cl_ns_mgmt_enabled(mgmt_vrf_name):
-    """
-    Return True if the user is using cl-ns-mgmt
-    """
-    output = subprocess.check_output(["/sbin/ip", "netns", "list"], stderr=subprocess.STDOUT)
-
-    for line in output.splitlines():
-        if line == mgmt_vrf_name:
-            return True
-
-    return False
-
-
 def cl_mgmtvrf_enabled_for_iface(ifname, mgmt_vrf_name):
     """
     Return True if Management VRF is enable for 'ifname'
@@ -168,12 +155,6 @@ if __name__ == '__main__':
         else :
             sys.stdout.write('Management VRF is enabled for \'%s\'\n' %interface)
             sys.exit(0)
-
-    # Don't cross the streams
-    # -Dr. Egon Spengler
-    if cl_ns_mgmt_enabled(mgmt_vrf_name):
-        log_error_and_exit('ERROR: cl-ns-mgmt and Management VRF cannot be used at the same time')
-
 
     # NOTE: originally we allowed the user to specify the interface via the
     # command line but we removed that option and only allow eth0 for now.
