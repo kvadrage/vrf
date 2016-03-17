@@ -9,8 +9,6 @@
 
 PROG=${0##*/}
 
-mkdir -p /etc/iproute2/rt_tables.d
-
 SYSTEMD_DIR=/lib/systemd/system
 SYSTEMD_USER=/etc/systemd/user
 MGMT_VRF_SERVICE=${SYSTEMD_DIR}/mgmt-vrf.service
@@ -164,7 +162,7 @@ function do_vrf_create
 	# create device
 	ip link add ${vrf} type vrf table ${tbid}
 
-	echo "${tbid}  ${vrf}" > /etc/iproute2/rt_tables.d/${vrf}.conf
+	# echo "${tbid}  ${vrf}" > /etc/iproute2/rt_tables.d/${vrf}.conf
 
 	# setup fib rules which direct lookups to the proper table
 	ip ru add pref 200 oif ${vrf} table ${tbid}
@@ -198,7 +196,7 @@ function do_vrf_delete
 		return 1
 	fi
 
-	rm -f /etc/iproute2/rt_tables.d/${vrf}.conf
+	# rm -f /etc/iproute2/rt_tables.d/${vrf}.conf
 
 	ip link delete dev ${vrf}
 	ip route del table ${tbid} default
@@ -238,6 +236,7 @@ function vrf_list
 	return 0
 }
 
+# Unsupported option; for testing and tooling only
 function vrf_add
 {
 	local vrf=${1}
@@ -251,6 +250,7 @@ function vrf_add
 	do_vrf_create ${vrf} $3
 }
 
+# Unsupported option; for testing and tooling only
 function vrf_delete
 {
 	local vrf=${1}
@@ -271,11 +271,12 @@ function link_usage
 {
 	cat <<EOF
 
-Manage association of links for VRF domains:
+Links associated with VRF domains:
     $PROG link list [<vrf-name>]
-    $PROG link add <vrf-name> dev <dev-name>
-    $PROG link remove dev <dev-name>
 EOF
+    # Unsupported options for customers; tooling and automated testing only
+    # $PROG link add <vrf-name> dev <dev-name>
+    # $PROG link remove dev <dev-name>
 }
 
 function link_list_vrf
@@ -369,8 +370,13 @@ function link_cmd
 
 	case "$cmd" in
 		l|li|ls|list) link_list   $*;;
+
+		####################################################
+		# these options are for testing and tooling; they
+		# are not intended for use by customers
 		a|add)        link_add    $*;;
 		r|rem|remove) link_remove $*;;
+		####################################################
 
 		help)         link_usage;;
 		*)            link_usage; return 1;;
@@ -384,11 +390,12 @@ function route_usage
 {
 cat <<EOF
 
-Manage routes for a VRF domain:
+Routes for a VRF domain:
     $PROG route list [<vrf-name>]
-    $PROG route {add|delete} <vrf-name> <route spec>
-    $PROG route get <vrf-name> <host>
 EOF
+    # Unsupported options for customers; tooling and automated testing only
+    # $PROG route {add|delete} <vrf-name> <route spec>
+    # $PROG route get <vrf-name> <host>
 }
 
 function route_show_vrf
@@ -486,9 +493,15 @@ function route_cmd
 
 	case "$cmd" in
 		s|sh|show|li|ls|list)  route_show $*;;
+		get)          route_get $*;;
+
+		####################################################
+		# these options are for testing and tooling; they
+		# are not intended for use by customers
 		a|add)        route_add $*;;
 		d|del|delete) route_delete $*;;
-		get)          route_get $*;;
+		####################################################
+
 		help)         route_usage;;
 		*)            route_usage; return 1;;
 	esac
@@ -502,7 +515,7 @@ function task_usage
 {
 	cat <<EOF
 
-Manage tasks and VRF domain asociation:
+Tasks and VRF domain asociation:
     $PROG task exec <vrf-name> <command>
     $PROG task list [<vrf-name>]
     $PROG task identify <pid>
@@ -663,7 +676,7 @@ function service_usage
 {
 	cat <<EOF
 
-Manage tasks running under systemd in a VRF domain:
+Tasks running under systemd in a VRF domain:
     $PROG service start  <vrf> {onboot} <service>
     $PROG service stop   <vrf> {onboot} <service>
     $PROG service status <vrf> {<service>}
@@ -963,10 +976,8 @@ function usage
 	cat <<EOF
 $PROG <OPTS>
 
-Manage VRF domains:
+VRF domains:
     $PROG list
-    $PROG add <vrf-name> table <table id>
-    $PROG delete <vrf-name>
 EOF
 	link_usage
 	route_usage
@@ -980,51 +991,39 @@ EOF
 CMD=$1
 shift
 case "$CMD" in
-	# l and li can be list or link; figure out which by arg list
-	l|li)
-		if [ -z "$1" ]; then
-			vrf_list
-	 	else
-			link_cmd $*
-		fi
-		;;
-
-	# e and ex can be exists or exec; figure out which by arg list
-	e|ex)
-		if [ -z "$2" ]; then
-			vrf_exists $*
-	 	else
-			task_cmd  exec $*
-		fi
-		;;
-
 	ls|list|sh|show) vrf_list $*;;
-	a|add)        vrf_add $*;;
-	d|del|delete) vrf_delete $*;;
-
-	# used by ifupdown2 config for setting up cgroup
-	# vrf cgroup <vrf-name>
-	c|cgroup)     vrf_cgroup $*;;
 
 	# return table id for VRF. Used by dhclient hook
-	table)      vrf_table $*;;
+	# $PROG table <vrf>
+	table) vrf_table $*;;
 
 	# bash profile scripts for checking if a vrf exists
-	# vrf exists <vrf-name>
-	exists)  vrf_exists $*;;
+	# $PROG exists <vrf-name>
+	exists) vrf_exists $*;;
 
-	link)  link_cmd $*;;
-	r|ro|route) route_cmd $*;;
-	t|ta|task)  task_cmd $*;;
+	# task commands
+	t|ta|task) task_cmd $*;;
 
-	# allowed shortcuts
-	# vrf exec <vrf> <cmd>
-	exec)       task_cmd  exec $*;;
+	# allowed shortcut: $PROG exec <vrf> <cmd>
+	exec) task_cmd  exec $*;;
 
 	s|service)  service_cmd $*;;
 
 	# vrf identify   (show VRF for task)
 	id|identify)   task_identify $*;;
+
+	li|link)  link_cmd $*;;
+	ro|route) route_cmd $*;;
+
+	####################################################
+	# these options are for testing and tooling; they
+	# are not intended for use by customers
+	add)        vrf_add $*;;
+	del|delete) vrf_delete $*;;
+
+	c|cgroup)     vrf_cgroup $*;;
+	# end unsupported options
+	####################################################
 
 	help) usage; exit 0;;
 	*) usage; exit 1;;
