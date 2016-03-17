@@ -20,5 +20,5 @@ fi
 # this means we are in mgmt VRF and -I eth0 was not given.
 # Want ping to default to front panel ports using default VRF
 
-/usr/cumulus/bin/cl-vrf task set default $$
+sudo /usr/cumulus/bin/cl-vrf task set default $$
 exec /bin/ping.iputils-ping $*
