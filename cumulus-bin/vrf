@@ -626,6 +626,10 @@ function task_set
 	if [ "$vrf" = "default" ]; then
 		echo $pid >> /sys/fs/cgroup/l3mdev/cgroup.procs
 	else
+		if [ ! -e /sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs ]; then
+			echo "cgroup does not exist for VRF."
+			exit 1
+		fi
 		echo $pid >> /sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs
 	fi
 }
