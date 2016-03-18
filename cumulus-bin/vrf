@@ -1004,10 +1004,17 @@ function mgmt_status
 	vrf_exists $MGMT_VRF
 	rc=$?
 
+	# make sure mgmt device has at least 1 device enslaved
+	# otherwise it means mgmt is defined but not used
+	if [ $rc -eq 0 ]; then
+		n=$(ip -br link show master $MGMT_VRF | wc -l)
+		[ $n -eq 0 ] && rc=1
+	fi
+
 	[ $rc -ne 0 ] && modstr="NOT "
 	echo "Management VRF is ${modstr}enabled."
 
-	return $?
+	return $rc
 }
 
 function mgmt_cmd
