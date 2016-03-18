@@ -2,14 +2,11 @@
 # in a VRF context
 [ -n "$VRF" ] && exit 0
 
-# Name of the management VRF device
-MGMT_VRF=mgmt
-
-/usr/cumulus/bin/cl-vrf exists $MGMT_VRF
+/usr/cumulus/bin/cl-vrf mgmt status >/dev/null 2>&1
 if [ $? -eq 0 ]; then
 	VRF=$(/usr/cumulus/bin/cl-vrf identify prompt)
 	if [ -z "$VRF" ]; then
-		sudo /usr/cumulus/bin/cl-vrf task set $MGMT_VRF $$
+		sudo /usr/cumulus/bin/cl-vrf mgmt set $$
 	fi
 fi
 

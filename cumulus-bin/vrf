@@ -9,6 +9,10 @@
 
 PROG=${0##*/}
 
+# Expected name of managment VRF device
+# TO-DO: should this be in a config file?
+MGMT_VRF=mgmt
+
 SYSTEMD_DIR=/lib/systemd/system
 SYSTEMD_USER=/etc/systemd/user
 MGMT_VRF_SERVICE=${SYSTEMD_DIR}/mgmt-vrf.service
@@ -590,6 +594,12 @@ function task_list
 	echo
 }
 
+# This should only be used by experienced users and known contexts.
+# Changing the context of a running task only affects future ipv4 and
+# ipv6 sockets. This option is used by various OS scripts to set
+# the context of a parent process before exec'ing another process
+# - a proper example of this should be used.
+
 function task_set
 {
 	local vrf=$1
@@ -969,6 +979,63 @@ function service_cmd
 }
 
 ################################################################################
+# Management VRF
+
+function mgmt_usage
+{
+	cat <<EOF
+
+Management VRF domain:
+    $PROG mgmt status
+EOF
+}
+
+# Determine if management VRF is enabled. Check looks solely for
+# the expected management VRF device name. If a customer / user
+# decides to name it something else this check will fail.
+# Can add check for eth0, eth1, ... enslavement (is it enslaved
+# to a VRF device) but even that has limits.
+
+function mgmt_status
+{
+	local rc
+	local modstr
+
+	vrf_exists $MGMT_VRF
+	rc=$?
+
+	[ $rc -ne 0 ] && modstr="NOT "
+	echo "Management VRF is ${modstr}enabled."
+
+	return $?
+}
+
+function mgmt_cmd
+{
+	local cmd=$1
+	shift
+
+	case "$cmd" in
+		status) mgmt_status $*;;
+
+		# used by profile.d hook
+		# $PROG mgmt set <pid>
+		set) task_set $MGMT_VRF $*;;
+
+		# return table id for MGMT_VRF. Used by dhclient hook
+		# $PROG mgmt table
+		table) vrf_table $MGMT_VRF;;
+
+		# return name of management VRF device. Used by ping and
+		# traceroute wrapper.
+		dev) echo $MGMT_VRF; return 0;;
+
+		help) mgmt_usage;;
+		*) mgmt_usage; return 1;;
+	esac
+}
+
+################################################################################
 # usage
 
 function usage
@@ -983,6 +1050,7 @@ EOF
 	route_usage
 	task_usage
 	service_usage
+	mgmt_usage
 }
 
 ################################################################################
@@ -992,10 +1060,6 @@ CMD=$1
 shift
 case "$CMD" in
 	ls|list|sh|show) vrf_list $*;;
-
-	# return table id for VRF. Used by dhclient hook
-	# $PROG table <vrf>
-	table) vrf_table $*;;
 
 	# bash profile scripts for checking if a vrf exists
 	# $PROG exists <vrf-name>
@@ -1014,6 +1078,8 @@ case "$CMD" in
 
 	li|link)  link_cmd $*;;
 	ro|route) route_cmd $*;;
+
+	m|mgmt) mgmt_cmd $*;;
 
 	####################################################
 	# these options are for testing and tooling; they

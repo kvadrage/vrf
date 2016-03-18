@@ -1,12 +1,7 @@
-MGMT_VRF=mgmt
-[ -e /etc/vrf.conf ] && . /etc/vrf.conf
-
-/usr/cumulus/bin/cl-vrf exists $MGMT_VRF
+/usr/cumulus/bin/cl-vrf mgmt status >/dev/null 2>&1
 [ $? -ne 0 ] && exit 0
 
-MGMT_TABLE=$(/usr/cumulus/bin/cl-vrf table $MGMT_VRF)
-
-#[ -r /var/lib/cl-mgmtvrf/mgmtvrf.conf ] && . /var/lib/cl-mgmtvrf/mgmtvrf.conf
+MGMT_TABLE=$(/usr/cumulus/bin/cl-vrf mgmt table)
 
 # Cleanup DNS state
 if [ -n "$old_domain_name_servers" ]; then
