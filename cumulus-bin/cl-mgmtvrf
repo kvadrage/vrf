@@ -1,21 +1,12 @@
 #!/usr/bin/env python
 import argparse
-import re
 import sys
+import subprocess
 from ConfigParser import SafeConfigParser
 
-def cl_mgmtvrf_enabled(mgmt_vrf_name):
-    try:
-        output = subprocess.check_output(shlex.split(''.join(["/sbin/ifquery --allow=", mgmt_vrf_name])), shell = False, stderr=subprocess.STDOUT)
-        for line in output.splitlines():
-            match = re.search('iface ([a-zA-Z0-9_\.]+)', line.strip())
-            if match:
-                ifname = match.group(1)
-            if line.strip() == "vrf %s" % mgmt_vrf_name:
-                return ifname 
-        return None
-    except Exception, e:
-        return None
+def status():
+    rc = subprocess.call("cl-vrf mgmt status", shell=True)
+    sys.exit(rc)
 
 def enable():
     sys.stdout.write("""
@@ -66,19 +57,12 @@ if __name__ == '__main__':
     parser.add_argument('interface', nargs ='?', help='Set management interface', action = 'store', default='eth0')
     args = parser.parse_args()
 
-    if args.status:
-        interface = cl_mgmtvrf_enabled('mgmt')
-        if not interface:
-            sys.stdout.write('Management VRF is NOT enabled\n')
-            sys.exit(1)
-        else :
-            sys.stdout.write('Management VRF is enabled for \'%s\'\n' %interface)
-            sys.exit(0)
-
     if args.enable:
         enable()
     elif args.disable:
         disable()
+    elif args.status:
+        status()
     else:
         sys.stdout.write('ERROR: %s' % parser.format_help())
         sys.exit(1)
