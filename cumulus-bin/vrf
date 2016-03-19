@@ -65,6 +65,17 @@ function l3mdev_cgroup_exists
 	return 1
 }
 
+function vrf_cgroup_exists
+{
+	local vrf=$1
+
+	[ -e /sys/fs/cgroup/l3mdev/${vrf} ] && return 0
+
+	echo "cgroup does not exist for VRF."
+
+	return 1
+}
+
 # return l3mdev cgroup task is associated with
 function vrf_get_cgroup
 {
@@ -626,10 +637,7 @@ function task_set
 	if [ "$vrf" = "default" ]; then
 		echo $pid >> /sys/fs/cgroup/l3mdev/cgroup.procs
 	else
-		if [ ! -e /sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs ]; then
-			echo "cgroup does not exist for VRF."
-			exit 1
-		fi
+		vrf_cgroup_exists $vrf || return 1
 		echo $pid >> /sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs
 	fi
 }
@@ -873,6 +881,8 @@ function systemd_start
 		echo "VRF does not exist"
 		return 1
 	fi
+
+	vrf_cgroup_exists $vrf || return 1
 
 	shift
 	if [ "$1" = "onboot" ]; then
