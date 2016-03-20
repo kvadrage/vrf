@@ -209,6 +209,9 @@ function do_vrf_create
 	local vrf=$1
 	local tbid=$2
 
+	# make sure there are no vestiges from previous vrfs with name
+	do_vrf_delete ${vrf} ${tbid}
+
 	# create device
 	ip link add ${vrf} type vrf table ${tbid}
 
@@ -231,33 +234,29 @@ function do_vrf_create
 	vrf_cgroup $vrf
 }
 
+# Do VRF clean up even if vrf device does not exist
 function do_vrf_delete
 {
 	local vrf=$1
-	local tbid=$(vrf_get_table $vrf)
-
-	if [ -z "$tbid" ]; then
-		dev_exists ${vrf}
-		if [ $? -eq 0 ]; then
-			echo "Failed to lookup table id"
-		else
-			echo "vrf does not exist"
-		fi
-		return 1
-	fi
+	local tbid=$2
 
 	# rm -f /etc/iproute2/rt_tables.d/${vrf}.conf
 
+	exec 2>/dev/null
+
 	ip link delete dev ${vrf}
-	ip route del table ${tbid} default
-	ip -6 route del table ${tbid} default
+
+	if [ -n "$tbid" ]; then
+		ip route flush table ${tbid}
+		ip -6 route flush table ${tbid}
+	fi
 
 	ip ru delete oif ${vrf}
 	ip ru delete iif ${vrf}
-	ip -6 ru delete oif -${vrf}
+	ip -6 ru delete oif ${vrf}
 	ip -6 ru delete iif ${vrf}
 
-	cgdelete -g l3mdev:${vrf} 2>/dev/null
+	cgdelete -g l3mdev:${vrf}
 }
 
 function vrf_list
@@ -297,6 +296,17 @@ function vrf_add
 		return 1
 	fi
 
+	if [ "${vrf}" = "default" ]; then
+		echo "'default' is a reserved VRF name"
+		return 1
+	fi
+
+	vrf_exists ${vrf}
+	if [ $? -eq 0 ]; then
+		echo "VRF already exists"
+		return 1
+	fi
+
 	do_vrf_create ${vrf} $3
 }
 
@@ -304,6 +314,7 @@ function vrf_add
 function vrf_delete
 {
 	local vrf=${1}
+	local tbid
 
 	if [ -z "$1" -o -n "$2" ];
 	then
@@ -311,7 +322,13 @@ function vrf_delete
 		return 1
 	fi
 
-	do_vrf_delete ${vrf}
+	if [ "${vrf}" = "default" ]; then
+		echo "Can not delete the default VRF"
+		return 1
+	fi
+
+	tbid=$(vrf_get_table $vrf)
+	do_vrf_delete ${vrf} ${tbid}
 }
 
 ################################################################################
