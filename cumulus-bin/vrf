@@ -1329,7 +1329,6 @@ $PROG <OPTS>
 
 VRF domains:
     $PROG list
-    $PROG verify
 EOF
 	link_usage
 	route_usage
@@ -1366,15 +1365,14 @@ case "$CMD" in
 
 	m|mgmt) mgmt_cmd $*;;
 
-	verify) verify_cmd;;
-
 	####################################################
 	# these options are for testing and tooling; they
 	# are not intended for use by customers
 	add)        vrf_add $*;;
 	del|delete) vrf_delete $*;;
 
-	c|cgroup)     vrf_cgroup $*;;
+	c|cgroup)   vrf_cgroup $*;;
+	verify)     verify_cmd;;
 	# end unsupported options
 	####################################################
 
