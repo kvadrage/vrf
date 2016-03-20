@@ -223,11 +223,11 @@ function do_vrf_create
 	ip -6 ru add pref 200 oif ${vrf} table $tbid
 	ip -6 ru add pref 200 iif ${vrf} table $tbid
 
-	# setup default route for vrf
-	if [ "${vrf}" != "$MGMT_VRF" ]; then
-		ip route add table ${tbid} unreachable default
-		ip -6 route add table ${tbid} unreachable default
-	fi
+	# setup default route for vrf - use a very poor metric so other
+	# default routes will take precedence. We need a default route
+	# to keep the lookups from dropping from one table to the next
+	ip route add table ${tbid} unreachable default metric 100
+	ip -6 route add table ${tbid} unreachable default metric 100
 
 	ip link set dev ${vrf} up
 
