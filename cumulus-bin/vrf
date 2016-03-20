@@ -26,6 +26,41 @@ function dev_exists
 	ip link show dev ${1} >/dev/null 2>&1
 }
 
+
+# return device index for given device name
+
+function dev_index
+{
+	local dev=$1
+	local idx
+
+	dev_exists ${dev} || return 1
+
+	idx=$(ip -o link show dev ${1} | awk '{print $1}')
+	idx=${idx/:}
+	echo $idx
+
+	[ -z "$idx" ] && return 1
+
+	return 0
+}
+
+# Look up master device for a link
+
+function dev_get_master
+{
+	local dev=$1
+
+	ip -o link show dev $dev | awk '{
+	for (i = 0; i < NF; ++i)
+		if ($i == "master") {
+			j=i+1
+			print $j
+			i=NF
+		}
+	}'
+}
+
 function get_comm
 {
 	awk '$1 == "Name:" {print $2}' /proc/$1/status
@@ -1057,6 +1092,234 @@ function mgmt_cmd
 }
 
 ################################################################################
+# verify config for existing vrfs
+
+# Run a few checks against management vrf expectations
+
+function verify_mgmt_vrf
+{
+	local mgmt_exists=0
+	local rc=0
+	local mdev
+
+	echo
+
+	vrf_exists $MGMT_VRF
+	if [ $? -ne 0 ]; then
+		echo "Management VRF does not exist"
+	else
+		mgmt_exists=1
+		echo "Management VRF exists"
+
+		mdev=$(ip -br li sh master $MGMT_VRF | awk '{print $1}')
+		if [ -z "$mdev" ]; then
+			echo "    ERROR: Management VRF exists with no enslaved devices"
+			rc=1
+		else
+			echo "    Management VRF interface: " $mdev
+		fi
+	fi
+
+	# eth0 should exist and be checked with warning level
+	# eth1 may exist and it is just informational
+
+	local level="WARNING: "
+	for d in eth0 eth1
+	do
+		dev_exists $d || continue
+
+		m=$(dev_get_master $d)
+		if [ -n "$m" ]; then
+			if [ "$m" = "$MGMT_VRF" ]; then
+				echo "    $d is enslaved to Management VRF"
+			else
+				echo "    ${level}$d is enslaved to $m"
+			fi
+		else
+			if [ $mgmt_exists -eq 1 ]; then
+				echo "    ${level}$d is not enslaved to management VRF"
+			else
+				echo "    $d is not enslaved"
+			fi
+		fi
+		level="INFO: "
+	done
+
+	return $rc
+}
+
+function verify_vrf_cgroup
+{
+	local vrf=$1
+
+	vrf_cgroup_exists $vrf >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "    ERROR: cgroup does not exist"
+		return 1
+	fi
+
+	idx=$(dev_index $vrf)
+	if [ $? -ne 0 ]; then
+		echo "    ERROR: Failed to get device index; cgroup may be misconfigured"
+		return 1
+	fi
+
+	# l3mdev.master-device file has line:
+	#     net[4026531957]: device index 62 ==> red
+	# important part is the index N ==> dev-name
+
+	grep -q "index $idx ==> $vrf" /sys/fs/cgroup/l3mdev/${vrf}/l3mdev.master-device
+	if [ $? -ne 0 ]; then
+		echo "    ERROR: cgroup is misconfigured"
+		return 1
+	fi
+
+	echo "    cgroup looks ok"
+
+	return 0
+}
+
+function verify_local_table
+{
+	local rc=0
+
+	echo
+	echo "Checking rules for local table:"
+
+	ip ru ls | egrep -q "^0:.*from all lookup local"
+	if [ $? -eq 0 ]; then
+		echo "    ERROR: IPv4 rule for local table should be after VRFs"
+		rc=1
+	fi
+
+	ip -6 ru ls | egrep -q "^0:.*from all lookup local"
+	if [ $? -eq 0 ]; then
+		echo "    ERROR: IPv6 rule for local table should be after VRFs"
+		rc=1
+	fi
+
+	[ $rc -eq 0 ] && echo "    rules for local tables look ok"
+
+	return $rc
+}
+
+function ip_ru_verify
+{
+	local vrf=$1
+	local tbid=$2
+	local ver=$3
+	local desc="IPv4"
+	local cmd="ip ru ls"
+	local rc=0
+	local d
+
+	if [ "$ver" = "6" ]; then
+		desc="IPv6"
+		cmd="ip -6 ru ls"
+	fi
+
+	# make sure the FIB rules exist; routing requires it
+
+	for d in iif oif
+	do
+		$cmd | grep -q "from all $d $vrf lookup $vrf"
+		if [ $? -ne 0 ]; then
+			$cmd | grep -q "from all $d $vrf lookup $tbid"
+			if [ $? -ne 0 ]; then
+				echo "    ERROR: $desc $d fib rule is missing (see $cmd)"
+				rc=1
+			fi
+		fi
+
+		# make sure there is only 1 FIB rule; duplicate rules affect
+		# performance
+		n=$($cmd | grep "from all $d $vrf lookup" | wc -l)
+		if [ $n -gt 1 ]; then
+			echo "    WARNING: More than 1 $desc $d fib rules are present (see $cmd)"
+			rc=1
+		fi
+	done
+
+	return $rc
+}
+
+function verify_vrf_fib_rules
+{
+	local vrf=$1
+	local tbid=$2
+	local rc=0
+
+	ip_ru_verify $vrf $tbid "4"
+	[ $? -ne 0 ] && rc=1
+	ip_ru_verify $vrf $tbid "6"
+	[ $? -ne 0 ] && rc=1
+
+	[ $rc -eq 0 ] && echo "    FIB rules look ok"
+
+	return $rc
+}
+
+function verify_cmd
+{
+	local vrf
+	local tbid
+	local rc=0
+	local n=0
+
+	n=$(ip -br link show type vrf | wc -l)
+	if [ $n -eq 0 ]; then
+		echo "No VRFs have been configured"
+		return 0
+	fi
+
+	verify_mgmt_vrf
+	[ $? -ne 0 ] && rc=1
+
+	vrf_get_list -a | 
+	while read vrf
+	do
+		# managemnet vrf handled in verify_mgmt_vrf
+		[ "$vrf" = "$MGMT_VRF" ] && continue
+
+		echo
+
+		tbid=$(vrf_get_table $vrf)
+		if [ -z "$tbid" ]; then
+			echo "ERROR: VRF $vrf: failed to get table id; VRF is misconfigured"
+			rc=1
+			continue
+		fi
+
+		echo "VRF $vrf table $tbid"
+
+		verify_vrf_fib_rules $vrf $tbid
+		[ $? -ne 0 ] && rc=1
+
+		verify_vrf_cgroup $vrf
+		[ $? -ne 0 ] && rc=1
+	done
+
+	verify_local_table
+	[ $? -ne 0 ] && rc=1
+
+	ip ru ls | grep -q '\[detached\]'
+	if [ $? -eq 0 ]; then
+		echo
+		echo "ERROR: Detached IPv4 FIB rules need to be removed. See ip ru ls"
+	fi
+
+	ip -6 ru ls | grep -q '\[detached\]'
+	if [ $? -eq 0 ]; then
+		echo
+		echo "ERROR: Detached IPv6 FIB rules need to be removed. See ip ru ls"
+	fi
+
+	echo
+
+	return $rc
+}
+
+################################################################################
 # usage
 
 function usage
@@ -1066,6 +1329,7 @@ $PROG <OPTS>
 
 VRF domains:
     $PROG list
+    $PROG verify
 EOF
 	link_usage
 	route_usage
@@ -1101,6 +1365,8 @@ case "$CMD" in
 	ro|route) route_cmd $*;;
 
 	m|mgmt) mgmt_cmd $*;;
+
+	verify) verify_cmd;;
 
 	####################################################
 	# these options are for testing and tooling; they
