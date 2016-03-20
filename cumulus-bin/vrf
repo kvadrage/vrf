@@ -221,7 +221,7 @@ function do_vrf_create
 	ip -6 ru add pref 200 iif ${vrf} table $tbid
 
 	# setup default route for vrf
-	if [ "${vrf}" != "mgmt" ]; then
+	if [ "${vrf}" != "$MGMT_VRF" ]; then
 		ip route add table ${tbid} unreachable default
 		ip -6 route add table ${tbid} unreachable default
 	fi
@@ -759,7 +759,7 @@ function valid_vrf
 		return 1
 	fi
 
-	if [ "$vrf" != "mgmt" ]; then
+	if [ "$vrf" != "$MGMT_VRF" ]; then
 		echo "This command is currently limited to management VRF."
 		return 1
 	fi
