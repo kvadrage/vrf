@@ -17,7 +17,6 @@ Management VRF is configured by adding the following stanza to
     iface mgmt
         address 127.0.0.1/8
         vrf-table auto
-        vrf-default-route no
 
 And then adding 'vrf mgmt' to the interface stanza. For example,
     auto eth0
