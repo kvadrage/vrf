@@ -13,6 +13,7 @@ function start_services
 {
 	local cfg=${CFGDIR}/${VRF}.conf
 
+	# No config -- nothing to do
 	if [ ! -e ${cfg} ]; then
 		return 0
 	fi
@@ -24,13 +25,16 @@ function start_services
 	do
 		systemctl --user -l status >/dev/null 2>&1
 		[ $? -eq 0 ] && break
-		[ $n -eq 5 ] && return 1
+		if [ $n -eq 5 ]; then
+			logger -p daemon.err "systemd-vrf: VRF instance of systemd failed to initialize in expected time; can not start services in VRF ${VRF}"
+			return 0
+		fi
 		sleep 1
 	done
 
 	cat ${cfg} | while read s
 	do
-		systemctl --user start ${s}
+		systemctl --user --no-block start ${s}
 	done
 
 	return 0
@@ -47,8 +51,8 @@ function do_stop
 VRF=$1
 /usr/cumulus/bin/cl-vrf exists ${VRF}
 if [ $? -ne 0 ]; then
-	echo "VRF does not exist"
-	exit 1
+	logger -p daemon.info "systemd-vrf: VRF ${VRF} does not exist. Nothing to do"
+	exit 0
 fi
 
 XDG_RUNTIME_DIR=/run/systemd-${VRF}
@@ -60,9 +64,10 @@ if [ -n "$2" ]; then
 	case "$2" in
 		start-services) start_services;;
 		stop) do_stop;;
-		*) echo "Invalid argument"; exit 1;;
 	esac
-	exit $?
+
+	# only exit non-0 if systemd is expected to restart this service
+	exit 0
 fi
 
 # default context if not given is management vrf.
@@ -70,9 +75,17 @@ fi
 # mgmt arg to this script to mean management vrf
 
 if [ -z "${VRF}" -o "${VRF}" = "mgmt" ]; then
-	/usr/cumulus/bin/cl-vrf mgmt set $$ || exit 1
+	/usr/cumulus/bin/cl-vrf mgmt set $$
+	rc=$?
 else
-	/usr/cumulus/bin/cl-vrf task set ${VRF} $$ || exit 1
+	/usr/cumulus/bin/cl-vrf task set ${VRF} $$
+	rc=$?
+fi
+if [ $rc -ne 0 ]; then
+	logger -p daemon.info "systemd-vrf: Failed to set VRF context to ${VRF}. Can not start systemd for VRF"
+	# systemd is not going to fix the VRF situation so no sense in exiting non-0;
+	# it only causes another attempt to start this service
+	exit 0
 fi
 
 exec /bin/systemd --user 
