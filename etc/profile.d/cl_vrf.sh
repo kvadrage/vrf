@@ -10,7 +10,7 @@ if [ -z "$VRF" ]; then
 	fi
 fi
 
-VRF=$(/usr/cumulus/bin/cl-vrf identify)
+VRF=$(/usr/cumulus/bin/cl-vrf identify prompt)
 export VRF
 
-PS1='$(/usr/cumulus/bin/cl-vrf identify prompt)\u@\h:\w\$ '
+PS1='\u@\h${VRF}:\w\$ '

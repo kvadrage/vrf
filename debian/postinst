@@ -132,7 +132,12 @@ do
 	# if file does not exist or we have already diverted move on
 	[ ! -f ${f} -o -e ${f}.cl_vrf ] && continue
 	dpkg-divert --divert ${f}.cl_vrf --rename ${f}
-	sed -e 's/PS1=/#PS1=/' ${f}.cl_vrf > ${f}
+	sed -e 's/^PS1=/#PS1=/' ${f}.cl_vrf > ${f}
+	cat >> ${f} <<EOF
+VRF=\$(/usr/cumulus/bin/cl-vrf identify prompt)
+export VRF
+PS1='\${debian_chroot:+($debian_chroot)}\u@\h\${VRF}:\w\$ '
+EOF
 done
 
 # fixup cumulus user bashrc

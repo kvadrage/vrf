@@ -630,7 +630,7 @@ function task_identify
 	if [ -n "$c" ]; then
 		if [ $do_prompt = "1" ]; then
 			c=$(normalize_vrf_name $c)
-			echo "[$c] "
+			echo ":$c"
 		else
 			echo "$c"
 		fi
