@@ -5,7 +5,7 @@ After=networking.service
 [Service]
 Type=simple
 WorkingDirectory=/
-ExecStart=/usr/cumulus/bin/start-systemd-vrf mgmt
+ExecStart=/usr/lib/cumulus/start-systemd-vrf mgmt
 Restart=on-failure
 
 [Install]
