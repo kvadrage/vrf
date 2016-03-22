@@ -1,0 +1,78 @@
+#!/bin/bash
+#
+# manage systemd integration for VRFs
+
+# Needs to be the same as cl-vrf uses
+CFGDIR=/var/lib/cumulus-vrf
+
+################################################################################
+# the duplication in CFGDIR and config file suggests this should
+# be done by cl-vrf, or cl-vrf should kick out to this script.
+
+function start_services
+{
+	local cfg=${CFGDIR}/${VRF}.conf
+
+	if [ ! -e ${cfg} ]; then
+		return 0
+	fi
+
+	# systemd starts the Post command almost identically
+	# with the command; give the systemd --user instance
+	# time to initialize
+	for n in $(seq 1 5)
+	do
+		systemctl --user -l status >/dev/null 2>&1
+		[ $? -eq 0 ] && break
+		[ $n -eq 5 ] && return 1
+		sleep 1
+	done
+
+	cat ${cfg} | while read s
+	do
+		systemctl --user start ${s}
+	done
+
+	return 0
+}
+
+function do_stop
+{
+	systemctl --user exit
+}
+
+################################################################################
+# main 
+
+VRF=$1
+/usr/cumulus/bin/cl-vrf exists ${VRF}
+if [ $? -ne 0 ]; then
+	echo "VRF does not exist"
+	exit 1
+fi
+
+XDG_RUNTIME_DIR=/run/systemd-${VRF}
+export XDG_RUNTIME_DIR
+
+# This script either starts the systemd process or the individual
+# processes by systemd
+if [ -n "$2" ]; then
+	case "$2" in
+		start-services) start_services;;
+		stop) do_stop;;
+		*) echo "Invalid argument"; exit 1;;
+	esac
+	exit $?
+fi
+
+# default context if not given is management vrf.
+# don't assume management vrf = "mgmt", but allow
+# mgmt arg to this script to mean management vrf
+
+if [ -z "${VRF}" -o "${VRF}" = "mgmt" ]; then
+	/usr/cumulus/bin/cl-vrf mgmt set $$ || exit 1
+else
+	/usr/cumulus/bin/cl-vrf task set ${VRF} $$ || exit 1
+fi
+
+exec /bin/systemd --user 
