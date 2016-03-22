@@ -244,6 +244,9 @@ function do_vrf_delete
 
 	exec 2>/dev/null
 
+	# stop and disable and systemd services that might be running
+	systemd_disable_vrf ${vrf}
+
 	ip link delete dev ${vrf}
 
 	if [ -n "$tbid" ]; then
@@ -1038,6 +1041,10 @@ function service_cmd
 		start)  service_start $*;;
 		stop)   service_stop $*;;
 		status) service_status $*;;
+
+		# hidden command for ifupdown2 when it deletes a VRF
+		# $PROG service disable <vrf>
+		disable) systemd_disable_vrf $*;;
 
 		help) service_usage;;
 		*) service_usage; return 1;;
