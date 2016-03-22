@@ -13,6 +13,12 @@ function start_services
 {
 	local cfg=${CFGDIR}/${VRF}.conf
 
+	/usr/cumulus/bin/cl-vrf exists ${VRF}
+	if [ $? -ne 0 ]; then
+		logger -p daemon.info "systemd-vrf: VRF ${VRF} does not exist. Nothing to do"
+		return 0
+	fi
+
 	# No config -- nothing to do
 	if [ ! -e ${cfg} ]; then
 		return 0
@@ -49,11 +55,6 @@ function do_stop
 # main 
 
 VRF=$1
-/usr/cumulus/bin/cl-vrf exists ${VRF}
-if [ $? -ne 0 ]; then
-	logger -p daemon.info "systemd-vrf: VRF ${VRF} does not exist. Nothing to do"
-	exit 0
-fi
 
 XDG_RUNTIME_DIR=/run/systemd-${VRF}
 export XDG_RUNTIME_DIR
