@@ -16,7 +16,7 @@ MGMT_VRF=mgmt
 SYSTEMD_DIR=/lib/systemd/system
 SYSTEMD_USER=/etc/systemd/user
 MGMT_VRF_SERVICE=${SYSTEMD_DIR}/mgmt-vrf.service
-CFGDIR=/var/lib/cl-vrf
+CFGDIR=/var/lib/cumulus-vrf
 
 ################################################################################
 # utilities
@@ -920,7 +920,7 @@ function check_default_vrf
 #
 # start a service within a VRF context
 #
-function systemd_start
+function service_start
 {
 	local vrf=$1
 	local onboot="no"
@@ -978,7 +978,7 @@ function systemd_start
 	systemctl --user start ${service}
 }
 
-function systemd_stop
+function service_stop
 {
 	local vrf=$1
 	local onboot="no"
@@ -1008,7 +1008,7 @@ function systemd_stop
 	systemctl --user stop $service
 }
 
-function systemd_status
+function service_status
 {
 	local vrf=$1
 	local service=$2
@@ -1035,9 +1035,9 @@ function service_cmd
 	[ $? -ne 0 ] && return 1
 
 	case "$cmd" in
-		start)  systemd_start $*;;
-		stop)   systemd_stop $*;;
-		status) systemd_status $*;;
+		start)  service_start $*;;
+		stop)   service_stop $*;;
+		status) service_status $*;;
 
 		help) service_usage;;
 		*) service_usage; return 1;;
