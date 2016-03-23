@@ -708,6 +708,11 @@ function task_exec
 		return 1
 	fi
 
+	if [ -z "$1" ]; then
+		echo "No command to run"
+		return 1
+	fi
+
 	which cgexec >/dev/null 2>&1
 	if [ $? -ne 0 ]; then
 		echo "cgexec not found. cgroups tools installed?"
