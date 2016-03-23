@@ -136,7 +136,7 @@ do
 	cat >> ${f} <<EOF
 VRF=\$(/usr/cumulus/bin/cl-vrf identify prompt)
 export VRF
-PS1='\${debian_chroot:+($debian_chroot)}\u@\h\${VRF}:\w\$ '
+PS1='\${debian_chroot:+(\$debian_chroot)}\u@\h\${VRF}:\w\$ '
 EOF
 done
 
