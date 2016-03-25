@@ -154,7 +154,11 @@ function vrf_exists
 
 	[ "$vrf" = "default" ] && return 0
 
-	dev_exists $vrf
+	n=$(ip link show dev $vrf type vrf | wc -l)
+
+	[ $n -eq 0  ] && return 1
+
+	return 0
 }
 
 # get table id for vrf device
@@ -247,7 +251,7 @@ function do_vrf_delete
 	# stop and disable and systemd services that might be running
 	systemd_disable_vrf ${vrf}
 
-	ip link delete dev ${vrf}
+	vrf_exists ${vrf} && ip link delete dev ${vrf}
 
 	if [ -n "$tbid" ]; then
 		ip route flush table ${tbid}
