@@ -7,6 +7,8 @@
 # user experience for managing VRFs on Linux. Perhaps one day this becomes
 # a subcommand of ip (ip vrf ...)
 
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/cumulus/bin
+
 PROG=${0##*/}
 
 # Expected name of managment VRF device
@@ -34,9 +36,7 @@ function dev_index
 	local dev=$1
 	local idx
 
-	dev_exists ${dev} || return 1
-
-	idx=$(ip -o link show dev ${1} | awk '{print $1}')
+	idx=$(ip -o link show dev ${dev} 2>/dev/null | awk '{print $1}')
 	idx=${idx/:}
 	echo $idx
 
@@ -122,27 +122,22 @@ function vrf_get_cgroup
 	echo ${c/\/}
 }
 
-function vrf_cgroup
+# configure cgroup for VRF
+function vrf_configure_cgroup
 {
 	local vrf=$1
 
 	l3mdev_cgroup_exists
 	[ $? -ne 0 ] && return 0
 
-	# configure cgroup
-	which cgcreate >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "cgcreate not found. cgroups tools installed?"
-		return 1
-	fi
-	cgcreate -g l3mdev:${vrf}
+	cgcreate -g l3mdev:/${vrf} || return 1
 
-	which cgset >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "cgset not found. cgroups tools installed?"
-		return 1
-	fi
 	cgset -r l3mdev.master-device=${vrf} ${vrf}
+}
+
+function vrf_delete_cgroup
+{
+	cgdelete -g l3mdev:/${1}
 }
 
 ################################################################################
@@ -154,25 +149,14 @@ function vrf_exists
 
 	[ "$vrf" = "default" ] && return 0
 
-	n=$(ip link show dev $vrf type vrf | wc -l)
-
-	[ $n -eq 0  ] && return 1
-
-	return 0
+	ip link show dev ${vrf} type vrf >/dev/null 2>&1
+	return $?
 }
 
 # get table id for vrf device
 function vrf_get_table
 {
-	ip -d link show dev ${1} 2>/dev/null | \
-	awk '{
-		for (i=1; i<NF; ++i) {
-			if ($i == "table") {
-				j=i+1
-				id=$j
-			}
-		}
-	} END { print id }'
+	ip -o -d link show dev ${1} 2>/dev/null | sed -e 's/.*vrf table \([0-9]*\) .*/\1/'
 }
 
 function vrf_table
@@ -191,79 +175,80 @@ function vrf_table
 # return list of VRFs that have been created
 function vrf_get_list
 {
-	local c
-
-	if [ "$1" != "-a" ]; then
-		c=$(vrf_get_cgroup $$)
-
-		# if task is associated with vrf only return that vrf
-		if [ -n "$c" ]; then
-			echo $c
-			return 0
-		fi
-	fi
-
 	ip -br link show type vrf | awk '{print $1}'
 }
 
-# create a VRF device, add FIB rules, set VRF link up, create id to table
-# for iproute2
-function do_vrf_create
+function vrf_add_rules
 {
 	local vrf=$1
 	local tbid=$2
-
-	# make sure there are no vestiges from previous vrfs with name
-	do_vrf_delete ${vrf} ${tbid}
-
-	# create device
-	ip link add ${vrf} type vrf table ${tbid}
-
-	# echo "${tbid}  ${vrf}" > /etc/iproute2/rt_tables.d/${vrf}.conf
 
 	# setup fib rules which direct lookups to the proper table
-	ip ru add pref 200 oif ${vrf} table ${tbid}
-	ip ru add pref 200 iif ${vrf} table ${tbid}
-	ip -6 ru add pref 200 oif ${vrf} table $tbid
-	ip -6 ru add pref 200 iif ${vrf} table $tbid
+	ip ru add pref 200 oif ${vrf} table ${tbid} || return 1
+	ip ru add pref 200 iif ${vrf} table ${tbid} || return 1
+	ip -6 ru add pref 200 oif ${vrf} table ${tbid} || return 1
+	ip -6 ru add pref 200 iif ${vrf} table ${tbid} || return 1
 
-	# setup default route for vrf - use a very poor metric so other
-	# default routes will take precedence. We need a default route
-	# to keep the lookups from dropping from one table to the next
-	ip route add table ${tbid} unreachable default metric 100
-	ip -6 route add table ${tbid} unreachable default metric 100
-
-	ip link set dev ${vrf} up
-
-	vrf_cgroup $vrf
+	return 0
 }
 
-# Do VRF clean up even if vrf device does not exist
-function do_vrf_delete
+function vrf_delete_rules
 {
 	local vrf=$1
-	local tbid=$2
-
-	# rm -f /etc/iproute2/rt_tables.d/${vrf}.conf
-
-	exec 2>/dev/null
-
-	# stop and disable and systemd services that might be running
-	systemd_disable_vrf ${vrf}
-
-	vrf_exists ${vrf} && ip link delete dev ${vrf}
-
-	if [ -n "$tbid" ]; then
-		ip route flush table ${tbid}
-		ip -6 route flush table ${tbid}
-	fi
 
 	ip ru delete oif ${vrf}
 	ip ru delete iif ${vrf}
 	ip -6 ru delete oif ${vrf}
 	ip -6 ru delete iif ${vrf}
 
-	cgdelete -g l3mdev:${vrf}
+	return 0
+}
+
+# setup default route for vrf - use a very poor metric so other
+# default routes will take precedence. We need a default route
+# to keep the lookups from dropping from one table to the next
+function vrf_add_default_route
+{
+	local tbid=$1
+
+	ip route add table ${tbid} unreachable default metric 240 || return 1
+	ip -6 route add table ${tbid} unreachable default metric 240 || return 1
+}
+
+function vrf_rem_default_route
+{
+	local tbid=$1
+
+	ip route flush table ${tbid}
+	ip -6 route flush table ${tbid}
+}
+
+# Configure a VRF
+function vrf_configure
+{
+	local vrf=$1
+	local tbid=$2
+
+	# clear old remnants before adding
+	vrf_teardown ${vrf} ${tbid} 2>/dev/null
+
+	vrf_add_rules ${vrf} ${tbid} || return 1
+	vrf_add_default_route ${tbid} || return 1
+	vrf_configure_cgroup ${vrf}
+}
+
+# Remove all configuration for VRF
+function vrf_teardown
+{
+	local vrf=$1
+	local tbid=$2
+
+	if [ -n "$tbid" ]; then
+		vrf_rem_default_route ${tbid}
+	fi
+
+	vrf_delete_rules ${vrf}
+	vrf_delete_cgroup ${vrf}
 }
 
 function vrf_list
@@ -280,7 +265,7 @@ function vrf_list
 	printf "%-16s %-5s\n" "VRF" "Table"
 	printf "%-16s %-5s\n" "----------------" "-----"
 
-	vrf=$(vrf_get_list -a)
+	vrf=$(vrf_get_list)
 	for v in $vrf
 	do
 		tbid=$(vrf_get_table $v)
@@ -296,6 +281,7 @@ function vrf_list
 function vrf_add
 {
 	local vrf=${1}
+	local tbid=${3}
 
 	if [ "$2" != "table" -o -z "$3" -o -n "$4" ];
 	then
@@ -314,16 +300,23 @@ function vrf_add
 		return 1
 	fi
 
-	do_vrf_create ${vrf} $3
+	# create device
+	ip link add ${vrf} type vrf table ${tbid}
+
+	# echo "${tbid}  ${vrf}" > /etc/iproute2/rt_tables.d/${vrf}.conf
+
+	vrf_configure ${vrf} ${tbid}
+
+	ip link set dev ${vrf} up
 }
 
 # Unsupported option; for testing and tooling only
 function vrf_delete
 {
 	local vrf=${1}
-	local tbid
+	local tbid=${2}
 
-	if [ -z "$1" -o -n "$2" ];
+	if [ -z "$vrf" ];
 	then
 		usage
 		return 1
@@ -334,8 +327,15 @@ function vrf_delete
 		return 1
 	fi
 
-	tbid=$(vrf_get_table $vrf)
-	do_vrf_delete ${vrf} ${tbid}
+	# stop and disable and systemd services that might be running
+	systemd_disable_vrf ${vrf}
+
+	[ -z "$tbid" ] && tbid=$(vrf_get_table $vrf)
+	# rm -f /etc/iproute2/rt_tables.d/${vrf}.conf
+
+	vrf_exists ${vrf} && ip link delete dev ${vrf}
+
+	vrf_teardown ${vrf} ${tbid} 2>/dev/null
 }
 
 ################################################################################
@@ -363,8 +363,7 @@ function link_list_vrf
 		return 1
 	fi
 
-	echo
-	echo "VRF $vrf"
+	printf "\nVRF: %-16s\n" $vrf
 	echo "--------------------"
 
 	ip -br link show master ${vrf}
@@ -372,13 +371,7 @@ function link_list_vrf
 
 function link_list
 {
-	local vrf=$1
-
-	if [ -n "$2" ];
-	then
-		link_usage
-		return 1
-	fi
+	local vrf="$*"
 
 	if [ -z "$vrf" ]; then
 		vrf=$(vrf_get_list)
@@ -395,7 +388,7 @@ function link_list
 function link_add
 {
 	local vrf=${1}
-	local dev=$3
+	local dev=${3}
 
 	if [ "$2" != "dev" -o -z "$3" -o -n "$4" ];
 	then
@@ -428,9 +421,9 @@ function link_remove
 		return 1
 	fi
 
-	dev_exists $dev
+	ip -o -d link show ${dev} 2>/dev/null | grep -q vrf_slave
 	if [ $? -ne 0 ]; then
-		echo "dev does not exist"
+		echo "dev is not a VRF slave"
 		return 1
 	fi
 
@@ -443,7 +436,7 @@ function link_cmd
 	shift
 
 	case "$cmd" in
-		l|li|ls|list) link_list   $*;;
+		ls|list|sh|show) link_list   $*;;
 
 		####################################################
 		# these options are for testing and tooling; they
@@ -484,8 +477,7 @@ function route_show_vrf
 
 	local tbid=$(vrf_get_table $vrf)
 
-	echo
-	echo "VRF $vrf" 
+	printf "\nVRF: %-16s\n" $vrf
 	echo "--------------------"
 
 	ip route show table $tbid
@@ -495,13 +487,7 @@ function route_show_vrf
 
 function route_show
 {
-	local vrf=${1}
-
-	if [ -n "$2" ];
-	then
-		route_usage
-		return 1
-	fi
+	local vrf="$*"
 
 	if [ -z "$vrf" ];
 	then
@@ -566,7 +552,7 @@ function route_cmd
 	shift
 
 	case "$cmd" in
-		s|sh|show|li|ls|list)  route_show $*;;
+		ls|list|sh|show)  route_show $*;;
 		get)          route_get $*;;
 
 		####################################################
@@ -600,8 +586,7 @@ function task_list_vrf
 {
 	local vrf=$1
 
-	printf "\n"
-	printf "VRF %s\n" $vrf
+	printf "\nVRF: %-16s\n" $vrf
 	echo "-----------------------"
 
 	local f="/sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs"
@@ -850,7 +835,8 @@ function systemd_disable_vrf
 		return 1
 	fi
 
-	# disable VRF service
+	f=${SYSTEMD_DIR}/${name}.service
+	[ ! -f ${f} ] && return 0
 
 	systemctl stop ${name}.service
 	rc=$?
@@ -859,7 +845,6 @@ function systemd_disable_vrf
 	#
 	# remove systemd service file except for mgmt vrf
 	#
-	f=${SYSTEMD_DIR}/${name}.service
 	if [ "$f" != "$MGMT_VRF_SERVICE" ]; then
 		rm -f $f
 	fi
@@ -1308,7 +1293,7 @@ function verify_cmd
 	verify_mgmt_vrf
 	[ $? -ne 0 ] && rc=1
 
-	vrf_get_list -a | 
+	vrf_get_list |
 	while read vrf
 	do
 		# managemnet vrf handled in verify_mgmt_vrf
@@ -1404,7 +1389,7 @@ case "$CMD" in
 	add)        vrf_add $*;;
 	del|delete) vrf_delete $*;;
 
-	c|cgroup)   vrf_cgroup $*;;
+	c|cgroup)   vrf_configure_cgroup $*;;
 	verify)     verify_cmd;;
 	# end unsupported options
 	####################################################
