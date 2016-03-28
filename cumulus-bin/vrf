@@ -579,6 +579,10 @@ Tasks and VRF domain asociation:
     $PROG task exec <vrf-name> <command>
     $PROG task list [<vrf-name>]
     $PROG task identify <pid>
+
+    NOTE: This command affects only AF_INET and AF_INET6 sockets opened by the
+          command that gets exec'ed. Specifically, it has *no* impact on netlink
+          sockets (e.g., ip command).
 EOF
 }
 
