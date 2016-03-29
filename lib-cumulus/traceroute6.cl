@@ -1,3 +1,3 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
-exec /usr/lib/cumulus/vrf-wrapper.cl /usr/bin/traceroute6.db $*
+exec /usr/lib/cumulus/vrf-wrapper.cl traceroute6 $*

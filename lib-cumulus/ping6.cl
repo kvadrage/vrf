@@ -1,3 +1,3 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
-exec /usr/lib/cumulus/vrf-wrapper.cl /bin/ping6.iputils-ping $*
+exec /usr/lib/cumulus/vrf-wrapper.cl ping6 $*

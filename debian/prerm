@@ -2,43 +2,16 @@
 
 set -e
 
-uninstall_alt() {
-
-	# Example invocations of the routine:
-	#  uninstall_alt tail /usr/lib/cumulus/tail.cl /usr/bin/tail /usr/bin/tail.coreutils
-
-	local altname=$1
-	local altpath=$2
-	local origpath=$3
-	local origaltpath=$4
-
-	echo "unstalling alternative $altpath for $altname .. "
-	update-alternatives --remove $altname $altpath
-	if [ $? -ne 0 ]; then
-	    echo "failed to uninstall alternative $altname $altpath"
-	    return 1
-	fi
-
-	echo "unstalling alternative $origaltpath for $altname .. "
-	update-alternatives --remove $altname $origaltpath
-	if [ $? -ne 0 ]; then
-	    echo "failed to uninstall alternative $altname $origaltpath"
-	    return 1
-	fi
-
-	mv -f $origaltpath $origpath &>/dev/null
-}
-
-ARCH=`uname -m`
-ret=0
-
+DIVERT_DIR=/usr/share/cumulus-vrf
 
 # uninstall alternatives to ping and traceroute
-#uninstall_alt ping  /usr/lib/cumulus/ping.cl  /bin/ping  /bin/ping.iputils-ping
-#uninstall_alt ping6 /usr/lib/cumulus/ping6.cl /bin/ping6 /bin/ping6.iputils-ping
-
-#uninstall_alt traceroute  /usr/lib/cumulus/traceroute.cl  /usr/bin/traceroute  /usr/bin/traceroute.db
-#uninstall_alt traceroute6 /usr/lib/cumulus/traceroute6.cl /usr/bin/traceroute6 /usr/bin/traceroute6.db
+for f in /usr/bin/traceroute /usr/sbin/traceroute /usr/bin/traceroute6 /bin/ping /bin/ping6
+do
+	[ ! -e ${DIVERT_DIR}/${f} ] && continue
+	dpkg-divert --remove ${f}
+	rm -f ${f}
+	mv -f ${DIVERT_DIR}/${f} ${f}
+done
 
 # undo package diverts
 for f in /etc/skel/.bashrc /etc/bash.bashrc
@@ -50,4 +23,4 @@ done
 
 #DEBHELPER#
 
-exit $ret
+exit 0
