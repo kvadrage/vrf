@@ -16,9 +16,10 @@ done
 # undo package diverts
 for f in /etc/skel/.bashrc /etc/bash.bashrc
 do
-	[ ! -e ${f}.cl_vrf ] && continue
+	[ ! -e ${DIVERT_DIR}/${f} ] && continue
 	dpkg-divert --remove ${f}
-	mv ${f}.cl_vrf ${f}
+	rm -f ${f}
+	mv -f ${DIVERT_DIR}/${f} ${f}
 done
 
 #DEBHELPER#

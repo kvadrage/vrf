@@ -33,10 +33,11 @@ done
 # bash package
 for f in /etc/skel/.bashrc /etc/bash.bashrc
 do
-	# if file does not exist or we have already diverted move on
-	[ ! -f ${f} -o -e ${f}.cl_vrf ] && continue
-	dpkg-divert --divert ${f}.cl_vrf --rename ${f}
-	sed -e 's/^PS1=/#PS1=/' ${f}.cl_vrf > ${f}
+	d=$(dirname $f)
+	mkdir -p ${DIVERT_DIR}/${d}
+
+	dpkg-divert --divert ${DIVERT_DIR}/${f} --rename ${f}
+	sed -e 's/^PS1=/#PS1=/' ${DIVERT_DIR}/${f} > ${f}
 	cat >> ${f} <<EOF
 VRF=\$(/usr/cumulus/bin/cl-vrf identify prompt)
 export VRF
