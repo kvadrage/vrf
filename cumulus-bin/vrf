@@ -849,6 +849,16 @@ function rm_service_onboot
 	mv ${cfg}.new ${cfg}
 }
 
+function normalize_systemd_service
+{
+	# for @ services put the vrf on the end
+	case $service in
+		*@) service=${service}${vrf};;
+	esac
+
+	echo $service
+}
+
 function systemd_symlink
 {
 	local vrf=$1
@@ -898,6 +908,7 @@ function service_start
 		echo "Service not given"
 		return 1
 	fi
+	service=$(normalize_systemd_service $service)
 
 	# make sure systemd in VRF is enabled
 	systemd_enable_vrf $vrf
@@ -936,6 +947,7 @@ function service_stop
 		echo "Service not given"
 		return 1
 	fi
+	service=$(normalize_systemd_service $service)
 
 	XDG_RUNTIME_DIR=/run/systemd-${vrf}
 	export XDG_RUNTIME_DIR
