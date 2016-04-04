@@ -3,105 +3,6 @@
 #
 # see: dh_installdeb(1)
 
-install_alt() {
-
-    # Installs the alternative, cumulus-specific file and moves the original 
-    # program to name "orig_name".<pkg-name>. For example, brctl is renamed 
-    # brctl.bridge-utils, start-stop-daemon is renamed start-stop-daemon.dpkg
-    # Example invocations of the routine:
-    #  install_alt /sbin/brctl /usr/lib/cumulus/brctl.cl
-    #  install_alt /sbin/start-stop-daemon /usr/lib/cumulus/start-stop-daemon.cl
-
-    local orig_file=$1
-    local alt_file=$2
-    local prg_name=`basename $1`
-    local no_alt=0
-
-    echo "Installing alternative $2 for $1 .. "
-
-    if [ "${orig_file:0:1}" != "/" ]; then
-	    echo "Specify fully qualified pathname for original file, $orig_file"
-        return 1
-    fi
-
-    # If alternative already exists, exit
-    [ -h $orig_file  -a -n "$(update-alternatives --query $prg_name 2>&1 | grep $alt_file)" ] && return 0;
-
-    if [ -n "$(update-alternatives --query $prg_name 2>&1 | grep 'error: no alternatives')" ]; then
-	    no_alt=1
-    fi
-
-    if [ "$no_alt" -eq 1 ]; then
-	    pkg_name=`dpkg -S $orig_file | cut -d':' -f 1`
-	    if [ -z $pkg_name ]; then
-		    echo "Failed to obtain package name for $orig_file"
-		    return 1
-	    fi
-
-	    mv $orig_file $orig_file.$pkg_name
-	    if [ $? -ne 0 ]; then
-		    echo "Failed to setup $prg_name alternatives"
-		    return 1
-	    fi
-
-	    update-alternatives --install $orig_file $prg_name $alt_file 20
-	    if [ $? -ne 0 ]; then
-		    echo "update-alternatives for alternative $alt_file failed with error " $?
-		    mv -f $orig_file.$pkg_name $orig_file
-		    return 1
-	    fi
-
-	    update-alternatives --install $orig_file $prg_name $orig_file.$pkg_name 10
-	    if [ $? -ne 0 ]; then
-		    echo "update-alternatives for original file $orig_file failed with error " $?
-		    update-alternatives --remove $prg_name $alt_file
-		    mv -f $orig_file.$pkg_name $orig_file
-		    return 1
-	    fi
-    else
-	    update-alternatives --install $orig_file $prg_name $alt_file 200
-	    if [ $? -ne 0 ]; then
-		    echo "update-alternatives for original file $orig_file failed with error " $?
-		    update-alternatives --remove $prg_name $alt_file
-		    mv -f $orig_file.$pkg_name $orig_file
-		    return 1
-	    fi
-	    return 0
-    fi
-}
-
-uninstall_alt() {
-
-    # Example invocations of the routine:
-    #  uninstall_alt tail /usr/lib/cumulus/tail.cl /usr/bin/tail /usr/bin/tail.coreutils
-
-    local altname=$1
-    local altpath=$2
-    local origpath=$3
-    local origaltpath=$4
-
-    echo "unstalling alternative $altpath for $altname .. "
-    update-alternatives --remove $altname $altpath
-    if [ $? -ne 0 ]; then
-	    echo "failed to uninstall alternative $altname $altpath"
-	    return 1
-    fi
-
-    echo "unstalling alternative $origaltpath for $altname .. "
-    update-alternatives --remove $altname $origaltpath
-    if [ $? -ne 0 ]; then
-	    echo "failed to uninstall alternative $altname $origaltpath"
-	    return 1
-    fi
-
-    mv -f $origaltpath $origpath &>/dev/null
-}
-
-ARCH=`uname -m`
-ret=0
-
-set -e
-
 # summary of how this script can be called:
 #        * <postinst> `configure' <most-recently-configured-version>
 #        * <old-postinst> `abort-upgrade' <new version>
@@ -114,25 +15,29 @@ set -e
 # for details, see http://www.debian.org/doc/debian-policy/ or
 # the debian-policy package
 
-chmod 4755 /usr/lib/cumulus/ping.cl
-chmod 4755 /usr/lib/cumulus/ping6.cl
-chmod 4755 /usr/lib/cumulus/traceroute.cl
-chmod 4755 /usr/lib/cumulus/traceroute6.cl
+set -e
+
+DIVERT_DIR=/usr/share/cumulus-vrf
 
 # Install alternatives to ping and traceroute
-#install_alt /bin/ping /usr/lib/cumulus/ping.cl
-#install_alt /bin/ping6 /usr/lib/cumulus/ping6.cl
-#install_alt /usr/bin/traceroute /usr/lib/cumulus/traceroute.cl
-#install_alt /usr/bin/traceroute6 /usr/lib/cumulus/traceroute6.cl
+for c in /usr/bin/traceroute /usr/sbin/traceroute /usr/bin/traceroute6 /bin/ping /bin/ping6
+do
+	d=$(dirname $c)
+	f=$(basename $c)
+	mkdir -p ${DIVERT_DIR}/${d}
+	dpkg-divert --divert ${DIVERT_DIR}/${c} --rename ${c}
+	ln -s /usr/lib/cumulus/${f}.cl ${c}
+done
 
 # We set PS1 in our profile.d script; remove the overrides by the
 # bash package
 for f in /etc/skel/.bashrc /etc/bash.bashrc
 do
-	# if file does not exist or we have already diverted move on
-	[ ! -f ${f} -o -e ${f}.cl_vrf ] && continue
-	dpkg-divert --divert ${f}.cl_vrf --rename ${f}
-	sed -e 's/^PS1=/#PS1=/' ${f}.cl_vrf > ${f}
+	d=$(dirname $f)
+	mkdir -p ${DIVERT_DIR}/${d}
+
+	dpkg-divert --divert ${DIVERT_DIR}/${f} --rename ${f}
+	sed -e 's/^PS1=/#PS1=/' ${DIVERT_DIR}/${f} > ${f}
 	cat >> ${f} <<EOF
 VRF=\$(/usr/cumulus/bin/cl-vrf identify prompt)
 export VRF
@@ -144,32 +49,6 @@ done
 if [ -f /home/cumulus/.bashrc ]; then
 	sed -ie 's/^PS1=/#PS1=/' /home/cumulus/.bashrc
 fi
-
-# short term hack to allow upgrades
-if [ -h /bin/ping ]; then
-	uninstall_alt ping  /usr/lib/cumulus/ping.cl  /bin/ping  /bin/ping.iputils-ping
-fi
-
-if [ -h /bin/ping6 ]; then
-	uninstall_alt ping6 /usr/lib/cumulus/ping6.cl /bin/ping6 /bin/ping6.iputils-ping
-fi
-
-if [ -h /etc/alternatives/traceroute ]; then
-	f=$(readlink /etc/alternatives/traceroute)
-	if [ "$f" = "/usr/lib/cumulus/traceroute.cl" ]; then
-		rm /etc/alternatives/traceroute
-		ln -s /usr/bin/traceroute.db /etc/alternatives/traceroute
-	fi
-fi
-
-if [ -h /etc/alternatives/traceroute6 ]; then
-	f=$(readlink /etc/alternatives/traceroute6)
-	if [ "$f" = "/usr/lib/cumulus/traceroute6.cl" ]; then
-		rm /etc/alternatives/traceroute6
-		ln -s /usr/bin/traceroute6.db /etc/alternatives/traceroute6
-	fi
-fi
-
 
 # dh_installdeb will replace this with shell code automatically
 # generated by other debhelper scripts.
