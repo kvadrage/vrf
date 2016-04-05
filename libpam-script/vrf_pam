@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# do nothing for sudo
+if [ "$PAM_SERVICE" = "sudo" ]; then
+	exit 0
+fi
+
+/usr/cumulus/bin/cl-vrf mgmt status >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+	VRF=$(/usr/cumulus/bin/cl-vrf identify prompt)
+	if [ -z "$VRF" ]; then
+		if [ -z "$PAMSCRIPT_PPID" ]; then
+			logger -p auth.err "PAMSCRIPT_PPID not set; can not set VRF context"
+			exit 1
+		fi
+
+		/usr/cumulus/bin/cl-vrf mgmt set $PAMSCRIPT_PPID
+	fi
+fi
+
+exit 0

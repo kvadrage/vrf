@@ -2,3 +2,4 @@ cumulus-bin/*		usr/cumulus/bin
 lib-cumulus/*		usr/lib/cumulus
 systemd/*		lib/systemd/system
 etc/*			etc/
+libpam-script		usr/share/cumulus-vrf/

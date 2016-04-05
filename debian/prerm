@@ -22,6 +22,22 @@ do
 	mv -f ${DIVERT_DIR}/${f} ${f}
 done
 
+# remove libpam-script config
+VRF_PAM_SCRIPT=/usr/share/cumulus-vrf/libpam-script
+PAM_SCRIPT=/usr/share/libpam-script
+rm -f ${PAM_SCRIPT}/pam-script.d/vrf_pam_ses_open
+
+for f in pam_script_acct pam_script_auth pam_script_ses_open pam_script_ses_close
+do
+	g=${PAM_SCRIPT}/$f
+	[ ! -s $g ] && continue
+
+	l=$(readlink $g)
+	case "$l" in
+		*vrf*) rm -f $g;;
+	esac
+done
+
 #DEBHELPER#
 
 exit 0
