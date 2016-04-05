@@ -1140,6 +1140,8 @@ function verify_mgmt_vrf
 		else
 			echo "    Management VRF interface: " $mdev
 		fi
+
+		verify_vrf_cgroup $MGMT_VRF
 	fi
 
 	# eth0 should exist and be checked with warning level
