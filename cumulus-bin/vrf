@@ -19,8 +19,17 @@ SYSTEMD_DIR=/lib/systemd/system
 SYSTEMD_USER=/etc/systemd/user
 CFGDIR=/var/lib/cumulus-vrf
 
+VERBOSE=0
+
 ################################################################################
 # utilities
+
+function log_cmd
+{
+	if [ $VERBOSE -eq 1 ]; then
+		echo "${PROG}: $*"
+	fi
+}
 
 function dev_exists
 {
@@ -129,13 +138,16 @@ function vrf_configure_cgroup
 	l3mdev_cgroup_exists
 	[ $? -ne 0 ] && return 0
 
+	log_cmd "cgcreate -g l3mdev:/${vrf}"
 	cgcreate -g l3mdev:/${vrf} || return 1
 
+	log_cmd "cgset -r l3mdev.master-device=${vrf} ${vrf}"
 	cgset -r l3mdev.master-device=${vrf} ${vrf}
 }
 
 function vrf_delete_cgroup
 {
+	log_cmd "cgdelete -g l3mdev:/${1}"
 	cgdelete -g l3mdev:/${1}
 }
 
@@ -161,7 +173,7 @@ function vrf_get_table
 function vrf_table
 {
 	local vrf=$1
-	
+
 	vrf_exists $vrf
 	if [ $? -ne 0 ]; then
 		echo "VRF does not exist"
@@ -210,15 +222,21 @@ function vrf_add_default_route
 {
 	local tbid=$1
 
+	log_cmd "ip route add table ${tbid} unreachable default metric 240"
 	ip route add table ${tbid} unreachable default metric 240 || return 1
+
+	log_cmd "ip -6 route add table ${tbid} unreachable default metric 240"
 	ip -6 route add table ${tbid} unreachable default metric 240 || return 1
 }
 
-function vrf_rem_default_route
+function vrf_flush_table
 {
 	local tbid=$1
 
+	log_cmd "ip route flush table ${tbid}"
 	ip route flush table ${tbid}
+
+	log_cmd "ip -6 route flush table ${tbid}"
 	ip -6 route flush table ${tbid}
 }
 
@@ -227,13 +245,36 @@ function vrf_configure
 {
 	local vrf=$1
 	local tbid=$2
+	local mode=$3
 
-	# clear old remnants before adding
+	if [ -n "$mode" -a "$mode" != "boot" ]; then
+		usage
+		return 1
+	fi
+
+	# make sure old remnants of prior vrf are removed
 	vrf_teardown ${vrf} ${tbid} 2>/dev/null
 
-	vrf_add_rules ${vrf} ${tbid} || return 1
-	vrf_add_default_route ${tbid} || return 1
+	vrf_add_default_route ${tbid}
+	if [ $? -ne 0 ]; then
+		echo "Failed to install default routes"
+		return 1
+	fi
+
 	vrf_configure_cgroup ${vrf}
+	if [ $? -ne 0 ]; then
+		echo "Failed to configure cgroup"
+		return 1
+	fi
+
+	# start systemd for VRF if it has been configured. Can not
+	# systemctl during boot. For boot systemd config should already
+	# exist and it will start up the service in a VRF
+	if [ -z "${mode}" ]; then
+		systemd_start_if_enabled ${vrf}
+	fi
+
+	return 0
 }
 
 # Remove all configuration for VRF
@@ -242,11 +283,12 @@ function vrf_teardown
 	local vrf=$1
 	local tbid=$2
 
+	systemd_stop_vrf ${vrf}
+
 	if [ -n "$tbid" ]; then
-		vrf_rem_default_route ${tbid}
+		vrf_flush_table ${tbid}
 	fi
 
-	vrf_delete_rules ${vrf}
 	vrf_delete_cgroup ${vrf}
 }
 
@@ -304,6 +346,8 @@ function vrf_add
 
 	# echo "${tbid}  ${vrf}" > /etc/iproute2/rt_tables.d/${vrf}.conf
 
+	vrf_add_rules ${vrf} ${tbid}
+
 	vrf_configure ${vrf} ${tbid}
 
 	ip link set dev ${vrf} up
@@ -332,7 +376,9 @@ function vrf_delete
 	[ -z "$tbid" ] && tbid=$(vrf_get_table $vrf)
 	# rm -f /etc/iproute2/rt_tables.d/${vrf}.conf
 
-	vrf_exists ${vrf} && ip link delete dev ${vrf}
+	ip link delete dev ${vrf} 2>/dev/null
+
+	vrf_delete_rules ${vrf}
 
 	vrf_teardown ${vrf} ${tbid} 2>/dev/null
 }
@@ -787,7 +833,10 @@ function systemd_enable_vrf
 {
 	local vrf=$1
 
+	log_cmd "systemctl enable vrf@${vrf}.service"
 	systemctl enable vrf@${vrf}.service
+
+	log_cmd "systemctl start  vrf@${vrf}.service"
 	systemctl start  vrf@${vrf}.service
 
 	# if we actually start systemd it takes a bit for it to
@@ -803,11 +852,36 @@ function systemd_disable_vrf
 {
 	local vrf=$1
 
-	systemctl stop vrf@${vrf}.service
-	rc=$?
-	systemctl disable vrf@${vrf}.service
+	log_cmd "systemctl stop vrf@${vrf}.service"
+	systemctl stop vrf@${vrf}.service 2>/dev/null
 
-	return $rc
+	log_cmd "systemctl disable vrf@${vrf}.service"
+	systemctl disable vrf@${vrf}.service 2>/dev/null
+
+	return 0
+}
+
+function systemd_stop_vrf
+{
+	local vrf=$1
+
+	log_cmd "systemctl stop vrf@${vrf}.service"
+	systemctl stop vrf@${vrf}.service 2>/dev/null
+
+	return 0
+}
+
+function systemd_start_if_enabled
+{
+	local vrf=$1
+
+	systemctl is-enabled vrf@${vrf}.service >/dev/null 2>&1
+	if [ $? -eq 0 ]; then
+		log_cmd "systemctl start vrf@${vrf}.service"
+		systemctl start vrf@${vrf}.service
+	fi
+
+	return 0
 }
 
 #
@@ -989,11 +1063,6 @@ function service_cmd
 		start)  service_start $*;;
 		stop)   service_stop $*;;
 		status) service_status $*;;
-
-		# hidden command for ifupdown2 when it deletes a VRF
-		# $PROG service disable <vrf>
-		disable) systemd_disable_vrf $*;;
-
 		help) service_usage;;
 		*) service_usage; return 1;;
 	esac
@@ -1055,8 +1124,8 @@ function mgmt_cmd
 		table) vrf_table $MGMT_VRF;;
 
 		# return name of management VRF device. Used by ping and
-		# traceroute wrapper.
-		dev) echo $MGMT_VRF; return 0;;
+		# traceroute wrapper and vrf-dns-helper
+		name|dev) echo $MGMT_VRF; return 0;;
 
 		help) mgmt_usage;;
 		*) mgmt_usage; return 1;;
@@ -1314,6 +1383,12 @@ EOF
 ################################################################################
 # main
 
+# enable verbose logging?
+if [ "$1" = "-v" ]; then
+	VERBOSE=1
+	shift
+fi
+
 CMD=$1
 shift
 case "$CMD" in
@@ -1338,6 +1413,11 @@ case "$CMD" in
 	ro|route) route_cmd $*;;
 
 	m|mgmt) mgmt_cmd $*;;
+
+	####################################################
+	# used by ifupdown2
+	configure) vrf_configure $*;;
+	teardown)  vrf_teardown  $*;;
 
 	####################################################
 	# these options are for testing and tooling; they
