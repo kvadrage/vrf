@@ -7,14 +7,14 @@ MGMT_TABLE=$(/usr/cumulus/bin/cl-vrf mgmt table)
 if [ -n "$old_domain_name_servers" ]; then
     # Delete rules associated with old DNS server
     for dns in $old_domain_name_servers; do
-        ip rule del to $dns lookup ${MGMT_TABLE} prio 99 1>/dev/null 2>&1
+        /usr/lib/cumulus/vrf-dns-helper dns_del ${dns} ${MGMT_TABLE} 1>/dev/null 2>&1
     done
 fi
 
 # Add rules to handle DNS server
 if [ -n "$new_domain_name_servers" ]; then
     for dns in $new_domain_name_servers; do
-        ip rule add to $dns lookup ${MGMT_TABLE} prio 99 1>/dev/null 2>&1
+        /usr/lib/cumulus/vrf-dns-helper dns_add ${dns} ${MGMT_TABLE}
     done
 fi
 
