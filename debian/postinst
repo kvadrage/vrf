@@ -54,7 +54,7 @@ done
 VRF_PAM_SCRIPT=/usr/share/cumulus-vrf/libpam-script
 PAM_SCRIPT=/usr/share/libpam-script
 
-for f in pam_script_acct pam_script_auth pam_script_ses_open pam_script_ses_close
+for f in pam_script_acct pam_script_auth pam_script_ses_open pam_script_ses_close pam_script_passwd
 do
 	g=${PAM_SCRIPT}/${f}
 	if [ ! -e $g ]; then
@@ -62,6 +62,7 @@ do
 	fi
 done
 
+mkdir -p ${PAM_SCRIPT}/pam-script.d/
 ln -s ${VRF_PAM_SCRIPT}/vrf_pam ${PAM_SCRIPT}/pam-script.d/vrf_pam_ses_open
 
 # dh_installdeb will replace this with shell code automatically
