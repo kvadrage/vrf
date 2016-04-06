@@ -838,11 +838,14 @@ function systemd_enable_vrf
 
 	log_cmd "systemctl start  vrf@${vrf}.service"
 	systemctl start  vrf@${vrf}.service
+	rc=$?
 
 	# if we actually start systemd it takes a bit for it to
 	# initialize and be ready to start services; moving too
 	# fast and the service startup fails.
 	sleep 2
+
+	return $rc
 }
 
 #
@@ -925,6 +928,9 @@ function rm_service_onboot
 
 function normalize_systemd_service
 {
+	local service=$1
+	local vrf=$2
+
 	# for @ services put the vrf on the end
 	case $service in
 		*@) service=${service}${vrf};;
@@ -937,13 +943,16 @@ function systemd_symlink
 {
 	local vrf=$1
 	local service=$2
+	local oservice=$3
 
-	systemd_file=${SYSTEMD_DIR}/${service}.service
+	# if this is a service@ then need to look for the service file
+	# without the appended vrf -- ie., the original service name
+	systemd_file=${SYSTEMD_DIR}/${oservice}.service
 	user_file=${SYSTEMD_USER}/${service}.service
 
 	if [ ! -e ${user_file} ]; then
 		if [ ! -f ${systemd_file} ]; then
-			echo "systemd service file not found."
+			echo "systemd service file not found. Can not enable in VRF"
 			return 1
 		fi
 		ln -s ${systemd_file} ${user_file}
@@ -977,19 +986,19 @@ function service_start
 		shift
 	fi
 
-	service=$1
-	if [ -z "$service" ]; then
+	oservice=$1
+	if [ -z "${oservice}" ]; then
 		echo "Service not given"
 		return 1
 	fi
-	service=$(normalize_systemd_service $service)
+	service=$(normalize_systemd_service ${oservice} ${vrf})
 
 	# make sure systemd in VRF is enabled
 	systemd_enable_vrf $vrf
 	[ $? -ne 0 ] && return 1
 
 	# create symlink for service to user directory
-	systemd_symlink $vrf $service
+	systemd_symlink ${vrf} ${service} ${oservice}
 	[ $? -ne 0 ] && return 1
 
 	if [ "$onboot" = "yes" ]; then
@@ -1016,12 +1025,12 @@ function service_stop
 		shift
 	fi
 
-	service=$1
-	if [ -z "$service" ]; then
+	oservice=$1
+	if [ -z "$oservice" ]; then
 		echo "Service not given"
 		return 1
 	fi
-	service=$(normalize_systemd_service $service)
+	service=$(normalize_systemd_service ${oservice} ${vrf})
 
 	XDG_RUNTIME_DIR=/run/systemd-${vrf}
 	export XDG_RUNTIME_DIR
