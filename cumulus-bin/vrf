@@ -752,17 +752,10 @@ function task_exec
 	fi
 
 	if [ "$vrf" = "default" ]; then
-		cgexec -g l3mdev:/ $* 2>/dev/null
-		rc=$?
+		cgexec -g l3mdev:/ $*
 	else
-		cgexec -g l3mdev:${vrf} $* 2>/dev/null
-		rc=$?
+		cgexec -g l3mdev:${vrf} $*
 	fi
-
-	if [ $rc -ne 0 ]; then
-		echo "Failed to run command in VRF context."
-	fi
-	return $rc
 }
 
 function task_cmd
