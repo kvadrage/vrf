@@ -5,9 +5,9 @@ After=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/
-ExecStart=/usr/lib/cumulus/systemd-vrf %I
-ExecStartPost=/usr/lib/cumulus/systemd-vrf %I start-services
-ExecStop=/usr/lib/cumulus/systemd-vrf %I stop
+ExecStart=/usr/lib/vrf/systemd-vrf %I
+ExecStartPost=/usr/lib/vrf/systemd-vrf %I start-services
+ExecStop=/usr/lib/vrf/systemd-vrf %I stop
 Restart=always
 
 [Install]

@@ -2,18 +2,18 @@
 #
 # manage systemd integration for VRFs
 
-# Needs to be the same as cl-vrf uses
-CFGDIR=/var/lib/cumulus-vrf
+# Needs to be the same as vrf uses
+CFGDIR=/var/lib/vrf
 
 ################################################################################
 # the duplication in CFGDIR and config file suggests this should
-# be done by cl-vrf, or cl-vrf should kick out to this script.
+# be done by vrf, or vrf should kick out to this script.
 
 function start_services
 {
 	local cfg=${CFGDIR}/${VRF}.conf
 
-	/usr/cumulus/bin/cl-vrf exists ${VRF}
+	vrf exists ${VRF}
 	if [ $? -ne 0 ]; then
 		logger -p daemon.info "systemd-vrf: VRF ${VRF} does not exist. Nothing to do"
 		return 0
@@ -52,7 +52,7 @@ function do_stop
 }
 
 ################################################################################
-# main 
+# main
 
 VRF=$1
 
@@ -71,17 +71,9 @@ if [ -n "$2" ]; then
 	exit 0
 fi
 
-# default context if not given is management vrf.
-# don't assume management vrf = "mgmt", but allow
-# mgmt arg to this script to mean management vrf
+vrf task set ${VRF} $$
+rc=$?
 
-if [ -z "${VRF}" -o "${VRF}" = "mgmt" ]; then
-	/usr/cumulus/bin/cl-vrf mgmt set $$
-	rc=$?
-else
-	/usr/cumulus/bin/cl-vrf task set ${VRF} $$
-	rc=$?
-fi
 if [ $rc -ne 0 ]; then
 	logger -p daemon.info "systemd-vrf: Failed to set VRF context to ${VRF}. Can not start systemd for VRF"
 	# systemd is not going to fix the VRF situation so no sense in exiting non-0;
@@ -89,4 +81,4 @@ if [ $rc -ne 0 ]; then
 	exit 0
 fi
 
-exec /bin/systemd --user 
+exec /bin/systemd --user

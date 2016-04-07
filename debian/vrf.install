@@ -1,0 +1,4 @@
+bin/vrf			usr/bin
+etc/profile.d/vrf.sh	etc/profile.d
+lib-vrf/*		usr/lib/vrf
+systemd/*		lib/systemd/system

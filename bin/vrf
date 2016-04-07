@@ -7,17 +7,11 @@
 # user experience for managing VRFs on Linux. Perhaps one day this becomes
 # a subcommand of ip (ip vrf ...)
 
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/cumulus/bin
-
 PROG=${0##*/}
-
-# Expected name of managment VRF device
-# TO-DO: should this be in a config file?
-MGMT_VRF=mgmt
 
 SYSTEMD_DIR=/lib/systemd/system
 SYSTEMD_USER=/etc/systemd/user
-CFGDIR=/var/lib/cumulus-vrf
+CFGDIR=/var/lib/vrf
 
 VERBOSE=0
 
@@ -60,12 +54,13 @@ function dev_get_master
 	local dev=$1
 
 	ip -o link show dev $dev | awk '{
-	for (i = 0; i < NF; ++i)
+	for (i = 0; i < NF; ++i) {
 		if ($i == "master") {
 			j=i+1
 			print $j
 			i=NF
 		}
+	}
 	}'
 }
 
@@ -1071,127 +1066,7 @@ function service_cmd
 }
 
 ################################################################################
-# Management VRF
-
-function mgmt_usage
-{
-	cat <<EOF
-
-Management VRF domain:
-    $PROG mgmt status
-EOF
-}
-
-# Determine if management VRF is enabled. Check looks solely for
-# the expected management VRF device name. If a customer / user
-# decides to name it something else this check will fail.
-# Can add check for eth0, eth1, ... enslavement (is it enslaved
-# to a VRF device) but even that has limits.
-
-function mgmt_status
-{
-	local rc
-	local modstr
-
-	vrf_exists $MGMT_VRF
-	rc=$?
-
-	# make sure mgmt device has at least 1 device enslaved
-	# otherwise it means mgmt is defined but not used
-	if [ $rc -eq 0 ]; then
-		n=$(ip -br link show master $MGMT_VRF | wc -l)
-		[ $n -eq 0 ] && rc=1
-	fi
-
-	[ $rc -ne 0 ] && modstr="NOT "
-	echo "Management VRF is ${modstr}enabled."
-
-	return $rc
-}
-
-function mgmt_cmd
-{
-	local cmd=$1
-	shift
-
-	case "$cmd" in
-		status) mgmt_status $*;;
-
-		# used by profile.d hook
-		# $PROG mgmt set <pid>
-		set) task_set $MGMT_VRF $*;;
-
-		# return table id for MGMT_VRF. Used by dhclient hook
-		# $PROG mgmt table
-		table) vrf_table $MGMT_VRF;;
-
-		# return name of management VRF device. Used by ping and
-		# traceroute wrapper and vrf-dns-helper
-		name|dev) echo $MGMT_VRF; return 0;;
-
-		help) mgmt_usage;;
-		*) mgmt_usage; return 1;;
-	esac
-}
-
-################################################################################
 # verify config for existing vrfs
-
-# Run a few checks against management vrf expectations
-
-function verify_mgmt_vrf
-{
-	local mgmt_exists=0
-	local rc=0
-	local mdev
-
-	echo
-
-	vrf_exists $MGMT_VRF
-	if [ $? -ne 0 ]; then
-		echo "Management VRF does not exist"
-	else
-		mgmt_exists=1
-		echo "Management VRF exists"
-
-		mdev=$(ip -br li sh master $MGMT_VRF | awk '{print $1}')
-		if [ -z "$mdev" ]; then
-			echo "    ERROR: Management VRF exists with no enslaved devices"
-			rc=1
-		else
-			echo "    Management VRF interface: " $mdev
-		fi
-
-		verify_vrf_cgroup $MGMT_VRF
-	fi
-
-	# eth0 should exist and be checked with warning level
-	# eth1 may exist and it is just informational
-
-	local level="WARNING: "
-	for d in eth0 eth1
-	do
-		dev_exists $d || continue
-
-		m=$(dev_get_master $d)
-		if [ -n "$m" ]; then
-			if [ "$m" = "$MGMT_VRF" ]; then
-				echo "    $d is enslaved to Management VRF"
-			else
-				echo "    ${level}$d is enslaved to $m"
-			fi
-		else
-			if [ $mgmt_exists -eq 1 ]; then
-				echo "    ${level}$d is not enslaved to management VRF"
-			else
-				echo "    $d is not enslaved"
-			fi
-		fi
-		level="INFO: "
-	done
-
-	return $rc
-}
 
 function verify_vrf_cgroup
 {
@@ -1306,7 +1181,7 @@ function verify_vrf_fib_rules
 
 function verify_cmd
 {
-	local vrf
+	local vrf_list="$*"
 	local tbid
 	local rc=0
 	local n=0
@@ -1314,20 +1189,14 @@ function verify_cmd
 	n=$(ip -br link show type vrf | wc -l)
 	if [ $n -eq 0 ]; then
 		echo "No VRFs have been configured"
+		[ -n "$vrf_list" ] && return 1
 		return 0
 	fi
 
-	verify_mgmt_vrf
-	[ $? -ne 0 ] && rc=1
+	[ -z "${vrf_list}" ] && vrf_list=$(vrf_get_list)
 
-	vrf_get_list |
-	while read vrf
+	for vrf in ${vrf_list}
 	do
-		# managemnet vrf handled in verify_mgmt_vrf
-		[ "$vrf" = "$MGMT_VRF" ] && continue
-
-		echo
-
 		tbid=$(vrf_get_table $vrf)
 		if [ -z "$tbid" ]; then
 			echo "ERROR: VRF $vrf: failed to get table id; VRF is misconfigured"
@@ -1335,6 +1204,7 @@ function verify_cmd
 			continue
 		fi
 
+		echo
 		echo "VRF $vrf table $tbid"
 
 		verify_vrf_fib_rules $vrf $tbid
@@ -1379,7 +1249,6 @@ EOF
 	route_usage
 	task_usage
 	service_usage
-	mgmt_usage
 }
 
 ################################################################################
@@ -1414,7 +1283,8 @@ case "$CMD" in
 	li|link)  link_cmd $*;;
 	ro|route) route_cmd $*;;
 
-	m|mgmt) mgmt_cmd $*;;
+	# used by mgmt-vrf
+	table) vrf_table $*;;
 
 	####################################################
 	# used by ifupdown2
@@ -1427,8 +1297,7 @@ case "$CMD" in
 	add)        vrf_add $*;;
 	del|delete) vrf_delete $*;;
 
-	c|cgroup)   vrf_configure_cgroup $*;;
-	verify)     verify_cmd;;
+	verify)     verify_cmd $*;;
 	# end unsupported options
 	####################################################
 

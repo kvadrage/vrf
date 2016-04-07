@@ -1,0 +1,4 @@
+Defaults env_keep += VRF
+
+cumulus ALL = PASSWD: /usr/bin/vrf
+cumulus ALL = NOPASSWD: /usr/bin/vrf task set
