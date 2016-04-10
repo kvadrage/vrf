@@ -1,7 +1,7 @@
 Source: vrf
 Section: net
 Priority: optional
-Maintainer: Cumulus Networks <support@cumulusnetworks.com>
+Maintainer: Cumulus Networks <dev-support@cumulusnetworks.com>
 Build-Depends: debhelper (>=9)
 Standards-Version: 3.9.6
 Homepage: http://www.cumulusnetworks.com
