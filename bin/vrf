@@ -15,6 +15,11 @@ CFGDIR=/var/lib/vrf
 
 VERBOSE=0
 
+# metric for unreachable default routes added to each vrf table
+# - static routes for IPv6 default to a metric of 1024 (IP6_RT_PRIO_USER)
+#   so our unreachable default should be below that
+RT_METRIC=8192
+
 ################################################################################
 # utilities
 
@@ -245,11 +250,11 @@ function vrf_add_default_route
 {
 	local tbid=$1
 
-	log_cmd "ip route add table ${tbid} unreachable default metric 240"
-	ip route add table ${tbid} unreachable default metric 240 || return 1
+	log_cmd "ip route add table ${tbid} unreachable default metric $RT_METRIC"
+	ip route add table ${tbid} unreachable default metric $RT_METRIC || return 1
 
-	log_cmd "ip -6 route add table ${tbid} unreachable default metric 240"
-	ip -6 route add table ${tbid} unreachable default metric 240 || return 1
+	log_cmd "ip -6 route add table ${tbid} unreachable default metric $RT_METRIC"
+	ip -6 route add table ${tbid} unreachable default metric $RT_METRIC || return 1
 }
 
 function vrf_flush_table
