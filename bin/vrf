@@ -84,6 +84,34 @@ function normalize_vrf_name
 	return 0
 }
 
+# VRF device name should only contain alphanumeric characters
+function get_vrf_arg
+{
+	local vrf
+
+	vrf="${1//[^a-zA-Z0-9_]/}"
+	if [ "$vrf" != "$1" ]; then
+		echo "Invalid VRF"
+		exit 1
+	fi
+
+	echo $vrf
+}
+
+# table id should only contain digits
+function get_tbid_arg
+{
+	local tbid
+
+	tbid="${1//[^0-9]/}"
+	if [ "$tbid" != "$1" ]; then
+		echo "Invalid table id"
+		exit 1
+	fi
+
+	echo $tbid
+}
+
 ################################################################################
 # cgroup functions
 
@@ -167,7 +195,7 @@ function vrf_get_table
 
 function vrf_table
 {
-	local vrf=$1
+	local vrf=$(get_vrf_arg ${1})
 
 	vrf_exists $vrf
 	if [ $? -ne 0 ]; then
@@ -238,8 +266,8 @@ function vrf_flush_table
 # Configure a VRF
 function vrf_configure
 {
-	local vrf=$1
-	local tbid=$2
+	local vrf=$(get_vrf_arg ${1})
+	local tbid=$(get_tbid_arg ${2})
 	local mode=$3
 
 	if [ -n "$mode" -a "$mode" != "boot" ]; then
@@ -275,8 +303,8 @@ function vrf_configure
 # Remove all configuration for VRF
 function vrf_teardown
 {
-	local vrf=$1
-	local tbid=$2
+	local vrf=$(get_vrf_arg ${1})
+	local tbid=$(get_tbid_arg ${2})
 
 	systemd_stop_vrf ${vrf}
 
@@ -316,8 +344,8 @@ function vrf_list
 # Unsupported option; for testing and tooling only
 function vrf_add
 {
-	local vrf=${1}
-	local tbid=${3}
+	local vrf=$(get_vrf_arg ${1})
+	local tbid=$(get_tbid_arg ${3})
 
 	if [ "$2" != "table" -o -z "$3" -o -n "$4" ];
 	then
@@ -351,8 +379,8 @@ function vrf_add
 # Unsupported option; for testing and tooling only
 function vrf_delete
 {
-	local vrf=${1}
-	local tbid=${2}
+	local vrf=$(get_vrf_arg ${1})
+	local tbid=$(get_tbid_arg ${2})
 
 	if [ -z "$vrf" ];
 	then
@@ -427,7 +455,7 @@ function link_list
 
 function link_add
 {
-	local vrf=${1}
+	local vrf=$(get_vrf_arg ${1})
 	local dev=${3}
 
 	if [ "$2" != "dev" -o -z "$3" -o -n "$4" ];
@@ -544,7 +572,7 @@ function route_show
 
 function route_add
 {
-	local vrf=${1}
+	local vrf=$(get_vrf_arg ${1})
 	shift
 
 	dev_exists $vrf
@@ -559,7 +587,7 @@ function route_add
 
 function route_delete
 {
-	local vrf=${1}
+	local vrf=$(get_vrf_arg ${1})
 	shift
 
 	dev_exists $vrf
@@ -574,7 +602,7 @@ function route_delete
 
 function route_get
 {
-	local vrf=${1}
+	local vrf=$(get_vrf_arg ${1})
 	shift
 
 	dev_exists $vrf
@@ -628,7 +656,7 @@ EOF
 
 function task_list_vrf
 {
-	local vrf=$1
+	local vrf=$(get_vrf_arg ${1})
 
 	printf "\nVRF: %-16s\n" $vrf
 	echo "-----------------------"
@@ -697,13 +725,17 @@ function task_list
 # Changing the context of a running task only affects future ipv4 and
 # ipv6 sockets. This option is used by various OS scripts to set
 # the context of a parent process before exec'ing another process
-# - a proper example of this should be used.
+# - a proper example of how this should be used.
 
 function task_set
 {
-	local vrf=$1
-	local pid=$2
+	local vrf=$(get_vrf_arg ${1})
+	local pid=${2//[^0-9]/}
 
+	if [ "$pid" != "$2" ]; then
+		echo "Invalid process id"
+		return 1
+	fi
 	if [ -n "$3" ]; then
 		task_usage
 		return 1
@@ -732,7 +764,7 @@ function task_set
 
 function task_exec
 {
-	local vrf=$1
+	local vrf=$(get_vrf_arg ${1})
 	shift
 
 	vrf_exists $vrf
@@ -954,7 +986,7 @@ function systemd_symlink
 #
 function service_start
 {
-	local vrf=$1
+	local vrf=$(get_vrf_arg ${1})
 	local onboot="no"
 	local service
 
@@ -1267,7 +1299,7 @@ case "$CMD" in
 
 	# bash profile scripts for checking if a vrf exists
 	# $PROG exists <vrf-name>
-	exists) vrf_exists $*;;
+	exists) vrf_exists $(get_vrf_arg ${1});;
 
 	# task commands
 	t|ta|task) task_cmd $*;;
