@@ -208,6 +208,6 @@ case "$cmd" in
 	name) echo $MGMT_VRF;;
 	##########################################
 
-	help) mgmt_usage;;
-	*) mgmt_usage; exit 1;;
+	help) usage;;
+	*) usage; exit 1;;
 esac
