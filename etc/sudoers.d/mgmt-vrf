@@ -1,4 +1,5 @@
 Defaults env_keep += VRF
 
-cumulus ALL = PASSWD: /usr/bin/vrf
-cumulus ALL = NOPASSWD: /usr/bin/vrf task set
+# need to be able to reset VRF context to default to run
+# ping and traceroute wrappers
+ALL ALL = NOPASSWD: /usr/bin/vrf task set default
