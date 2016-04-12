@@ -31,7 +31,7 @@ function configure_dns_server
 	[ $? -eq 0 ] && return 0
 
 	log_cmd "ip rule add to ${dns} prio ${PRIO}"
-	ip rule add to ${dns} prio ${PRIO}
+	ip rule add to ${dns} lookup ${table} prio ${PRIO}
 }
 
 function remove_dns_server
