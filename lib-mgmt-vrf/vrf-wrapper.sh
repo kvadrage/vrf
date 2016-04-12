@@ -6,8 +6,13 @@
 
 export PATH=/usr/share/mgmt-vrf/bin:/usr/share/mgmt-vrf/usr/bin:$PATH
 
+# wrapper can only be used to run ping and traceroute
 CMD="$1"
 shift
+case "$CMD" in
+	ping|ping6|traceroute|traceroute6) :;;
+	*) echo "Invalid command"; exit 1;;
+esac
 
 # get name of management vrf
 mgmt=$(mgmt-vrf name)
