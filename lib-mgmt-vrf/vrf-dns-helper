@@ -94,7 +94,6 @@ function vrf_create
 # enable verbose logging?
 if [ "$1" = "-v" ]; then
         VERBOSE=1
-        VERBARG="-v"
         shift
 fi
 

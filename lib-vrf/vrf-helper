@@ -44,12 +44,12 @@ function delete_cmd
 
 	# remove per-VRF DNS config
 	if [ -x ${DNS_HELPER} ]; then
-		log_cmd "vrf-dns-helper delete ${vrf} ${tbid}"
-		${DNS_HELPER} delete ${vrf} ${tbid}
+		log_cmd "${DNS_HELPER} ${VERBARG} delete ${vrf} ${tbid}"
+		${DNS_HELPER} ${VERBARG} delete ${vrf} ${tbid}
 	fi
 
-	log_cmd "vrf teardown ${vrf} ${tbid}"
-	vrf teardown ${vrf} ${tbid}
+	log_cmd "vrf ${VERBARG} teardown ${vrf} ${tbid}"
+	vrf ${VERBARG} teardown ${vrf} ${tbid}
 }
 
 ################################################################################
@@ -72,8 +72,8 @@ function create_cmd
 
 	# local VRF configurations - if these fail caller needs to fail
 	# the creation of the VRF
-	log_cmd "vrf configure ${vrf} ${tbid} ${mode}"
-	vrf configure ${vrf} ${tbid} ${mode} || return 1
+	log_cmd "vrf ${VERBARG} configure ${vrf} ${tbid} ${mode}"
+	vrf ${VERBARG} configure ${vrf} ${tbid} ${mode} || return 1
 
 	#
 	# the rest are best effort with logging of errors
@@ -81,8 +81,8 @@ function create_cmd
 
 	# per VRF DNS setup
 	if [ -x ${DNS_HELPER} ]; then
-		log_cmd "vrf-dns-helper create ${vrf} ${tbid}"
-		${DNS_HELPER} create ${vrf} ${tbid}
+		log_cmd "${DNS_HELPER} ${VERBARG} create ${vrf} ${tbid}"
+		${DNS_HELPER} ${VERBARG} create ${vrf} ${tbid}
 	fi
 }
 
