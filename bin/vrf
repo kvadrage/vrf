@@ -774,19 +774,32 @@ function task_exec
 
 	vrf_exists $vrf
 	if [ $? -ne 0 ]; then
-		echo "VRF does not exist"
+		echo "ERROR: VRF does not exist"
 		return 1
 	fi
 
 	if [ -z "$1" ]; then
-		echo "No command to run"
+		echo "ERROR: No command to run"
 		return 1
 	fi
 
 	if [ "$vrf" = "default" ]; then
 		cgexec -g l3mdev:/ $*
 	else
-		cgexec -g l3mdev:${vrf} $*
+		vrf_cgroup_exists $vrf >/dev/null 2>&1
+		if [ $? -ne 0 ]; then
+			echo "ERROR: cgroup does not exist for VRF"
+			return 1
+		fi
+
+		# make sure cgroup has master device set
+		cgget -g l3mdev:/${vrf} -v -n | grep -q " ==> $vrf"
+		if [ $? -ne 0 ]; then
+			echo "ERROR: cgroup is misconfigured for VRF"
+			return 1
+		fi
+
+		cgexec -g l3mdev:/${vrf} $*
 	fi
 }
 
@@ -1125,7 +1138,7 @@ function verify_vrf_cgroup
 	#     net[4026531957]: device index 62 ==> red
 	# important part is the index N ==> dev-name
 
-	grep -q "index $idx ==> $vrf" /sys/fs/cgroup/l3mdev/${vrf}/l3mdev.master-device
+	cgget -g l3mdev:/${vrf} -v -n | grep -q "index $idx ==> $vrf"
 	if [ $? -ne 0 ]; then
 		echo "    ERROR: cgroup is misconfigured"
 		return 1
