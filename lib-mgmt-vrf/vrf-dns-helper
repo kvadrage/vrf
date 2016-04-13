@@ -6,6 +6,7 @@
 # VRF rules
 PRIO=99
 
+PROG=${0##*/}
 VERBOSE=0
 
 ################################################################################
@@ -14,7 +15,7 @@ VERBOSE=0
 function log_cmd
 {
 	if [ $VERBOSE -eq 1 ]; then
-		echo "vrf-dns-helper: $*"
+		echo "${PROG}: $*"
 	fi
 }
 
@@ -23,11 +24,13 @@ function log_cmd
 
 function configure_dns_server
 {
-	dns=$1
-	table=$2
+	local dns=$1
+	local table=$2
 
 	# does rule already exist?
-	ip ru ls | grep -q "to ${dns} lookup ${table}"
+	# TO-DO: table arg is a number, 'ip ru' always converts
+	#        to text if an id to name exists
+	ip ru ls | grep -q "from all to ${dns} lookup "
 	[ $? -eq 0 ] && return 0
 
 	log_cmd "ip rule add to ${dns} prio ${PRIO}"
@@ -36,8 +39,8 @@ function configure_dns_server
 
 function remove_dns_server
 {
-	dns=$1
-	table=$2
+	local dns=$1
+	local table=$2
 
 	# simpler to just do remove command and not worry about ENOENT error
 	log_cmd "ip rule del to ${dns} lookup ${table} prio ${PRIO}"
@@ -45,6 +48,35 @@ function remove_dns_server
 
 	return 0
 }
+
+function verify_dns_server
+{
+	local dns=$1
+	local table=$2
+	local tmpfile=$3	
+
+	echo
+
+	grep -q "from all to ${dns} lookup ${table}" ${tmpfile}
+	if [ $? -eq 0 ]; then
+		echo "Rule for dns server ${dns} exists with table ${table}"
+		sed -ie "/from all to ${dns} lookup ${table}/d" ${tmpfile}
+		return 0
+	fi
+
+	grep -q "from all to ${dns} lookup " ${tmpfile}
+	if [ $? -eq 0 ]; then
+		echo "Rule for dns server ${dns} exists but table match failed"
+		sed -ie "/from all to ${dns} lookup /d" ${tmpfile}
+		return 0
+	fi
+
+	echo "No FIB rule for dns server ${dns}"
+	return 0
+}
+
+################################################################################
+#
 
 function vrf_delete
 {
@@ -88,6 +120,37 @@ function vrf_create
 	done < /etc/resolv.conf
 }
 
+function vrf_verify
+{
+	local mgmt_name
+
+	# For now only dealing with Management VRF
+	mgmt-vrf status >/dev/null 2>&1
+	if [ $? -ne 0 ]; then
+		echo "Management VRF not enabled."
+		return 0
+	fi
+	mgmt_name=$(mgmt-vrf name)
+
+	# get a cache of DNS entries
+	tmpfile=$(mktemp /tmp/vrf.XXXXXXXX)
+	ip ru ls | egrep "^${PRIO}:" >> $tmpfile
+
+	while read ns ip tmp
+	do
+		[ "$ns" != "nameserver" ] && continue
+		verify_dns_server ${ip} ${mgmt_name} ${tmpfile}
+	done < /etc/resolv.conf
+
+	if [ -s ${tmpfile} ]; then
+		echo
+		echo "Extra FIB rules exist at DNS priority:"
+		cat ${tmpfile}
+	fi
+
+	rm -f ${tmpfile}
+}
+
 ################################################################################
 # main
 
@@ -104,5 +167,6 @@ case "$ACTION" in
 	dns_del) remove_dns_server $*;;
 	create)  vrf_create $*;;
 	delete)  vrf_delete $*;;
+	verify)  vrf_verify;;
 	*) exit 1;;
 esac

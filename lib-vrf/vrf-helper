@@ -16,6 +16,7 @@ function usage
 	cat <<EOF
     $PROG create <vrf> <table> [boot]
     $PROG delete <vrf> <table>
+    $PROG verify
 EOF
 }
 
@@ -87,6 +88,27 @@ function create_cmd
 }
 
 ################################################################################
+# run verify for each command we run
+
+function verify_cmd
+{
+	echo "vrf verify:"
+	vrf verify | \
+	while read line; do
+		echo "    $line"
+	done
+
+	if [ -x ${DNS_HELPER} ]; then
+		echo
+		echo "${DNS_HELPER##*/} verify:"
+		${DNS_HELPER} verify |\
+		while read line; do
+			echo "    $line"
+		done
+	fi
+}
+
+################################################################################
 # main
 
 # enable verbose logging?
@@ -101,5 +123,6 @@ shift
 case "$CMD" in
 	create) create_cmd $*;;
 	delete) delete_cmd $*;;
+	verify) verify_cmd;;
 	*) usage; exit 1;;
 esac
