@@ -257,15 +257,15 @@ function vrf_add_default_route
 	ip -6 route add table ${tbid} unreachable default metric $RT_METRIC || return 1
 }
 
-function vrf_flush_table
+function vrf_remove_default_route
 {
 	local tbid=$1
 
-	log_cmd "ip route flush table ${tbid}"
-	ip route flush table ${tbid}
+	log_cmd "ip route delete table ${tbid} unreachable default metric $RT_METRIC"
+	ip route delete table ${tbid} unreachable default metric $RT_METRIC >/dev/null 2>&1
 
-	log_cmd "ip -6 route flush table ${tbid}"
-	ip -6 route flush table ${tbid}
+	log_cmd "ip -6 route delete table ${tbid} unreachable default metric $RT_METRIC"
+	ip -6 route delete table ${tbid} unreachable default metric $RT_METRIC >/dev/null 2>&1
 }
 
 # Configure a VRF
@@ -276,7 +276,7 @@ function vrf_configure
 	local mode=$3
 
 	# vrf_configure can be called directly; make sure args exist
-	if [ -n "$tbid" ]; then
+	if [ -z "$tbid" ]; then
 		usage
 		return 1
 	fi
@@ -320,7 +320,7 @@ function vrf_teardown
 	systemd_stop_vrf ${vrf}
 
 	if [ -n "$tbid" ]; then
-		vrf_flush_table ${tbid}
+		vrf_remove_default_route ${tbid}
 	fi
 
 	vrf_delete_cgroup ${vrf}
