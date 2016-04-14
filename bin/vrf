@@ -275,6 +275,12 @@ function vrf_configure
 	local tbid=$(get_tbid_arg ${2})
 	local mode=$3
 
+	# vrf_configure can be called directly; make sure args exist
+	if [ -n "$tbid" ]; then
+		usage
+		return 1
+	fi
+
 	if [ -n "$mode" -a "$mode" != "boot" ]; then
 		usage
 		return 1
