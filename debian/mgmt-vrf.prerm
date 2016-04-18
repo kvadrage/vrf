@@ -18,7 +18,7 @@ VRF_PAM_SCRIPT=/usr/share/mgmt-vrf/libpam-script
 PAM_SCRIPT=/usr/share/libpam-script
 rm -f ${PAM_SCRIPT}/pam-script.d/mgmt-vrf_pam_ses_open
 
-for f in pam_script_acct pam_script_auth pam_script_ses_open pam_script_ses_close pam_script_passwd
+for f in pam_script_ses_open pam_script_ses_close
 do
 	g=${PAM_SCRIPT}/$f
 	[ ! -s $g ] && continue
@@ -28,6 +28,14 @@ do
 		*vrf*) rm -f $g;;
 	esac
 done
+
+f=/usr/share/pam-configs/pam_script
+[ ! -e ${DIVERT_DIR}/${f} ] && continue
+dpkg-divert --remove ${f}
+rm -f ${f}
+mv -f ${DIVERT_DIR}/${f} ${f}
+
+pam-auth-update --package
 
 #DEBHELPER#
 
