@@ -47,7 +47,7 @@ done
 mkdir -p ${PAM_SCRIPT}/pam-script.d
 ln -s ${VRF_PAM_SCRIPT}/mgmt-vrf_pam ${PAM_SCRIPT}/pam-script.d/mgmt-vrf_pam_ses_open
 
-# Now to fix that damn overly aggressive config setup
+# insert a focused config for libpam-script
 f=/usr/share/pam-configs/pam_script
 mkdir -p ${DIVERT_DIR}/$(dirname $f)
 dpkg-divert --divert ${DIVERT_DIR}/${f} --rename ${f}
