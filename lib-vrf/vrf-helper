@@ -16,7 +16,7 @@ function usage
 	cat <<EOF
     $PROG create <vrf> <table> [boot]
     $PROG delete <vrf> <table>
-    $PROG verify
+    $PROG verify [<vrf> <table>]
 EOF
 }
 
@@ -93,7 +93,7 @@ function create_cmd
 function verify_cmd
 {
 	echo "vrf verify:"
-	vrf verify | \
+	vrf verify $* | \
 	while read line; do
 		echo "    $line"
 	done
@@ -101,7 +101,7 @@ function verify_cmd
 	if [ -x ${DNS_HELPER} ]; then
 		echo
 		echo "${DNS_HELPER##*/} verify:"
-		${DNS_HELPER} verify |\
+		${DNS_HELPER} verify $* |\
 		while read line; do
 			echo "    $line"
 		done
@@ -123,6 +123,6 @@ shift
 case "$CMD" in
 	create) create_cmd $*;;
 	delete) delete_cmd $*;;
-	verify) verify_cmd;;
+	verify) verify_cmd $*;;
 	*) usage; exit 1;;
 esac

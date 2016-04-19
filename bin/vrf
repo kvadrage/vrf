@@ -268,6 +268,31 @@ function vrf_remove_default_route
 	ip -6 route delete table ${tbid} unreachable default metric $RT_METRIC >/dev/null 2>&1
 }
 
+function vrf_verify_default_route
+{
+	local tbid=$1
+	local rc=0
+
+	# really want to check metric
+	ip route ls table ${tbid} | grep -q "unreachable default "
+	if [ $? -ne 0 ]; then
+		echo "    ERROR: IPv4 default route missing"
+		rc=1
+	fi
+
+	ip -6 route ls table ${tbid} | grep -q "unreachable default "
+	if [ $? -ne 0 ]; then
+		echo "    ERROR: IPv6 default route missing"
+		rc=1
+	fi
+
+	if [ $rc -eq 0 ]; then
+		echo "    default routes are installed"
+	fi
+
+	return $rc
+}
+
 # Configure a VRF
 function vrf_configure
 {
@@ -1183,37 +1208,38 @@ function ip_ru_verify
 {
 	local vrf=$1
 	local tbid=$2
-	local ver=$3
+	local tmpfile=$3
+	local ver=$4
 	local desc="IPv4"
-	local cmd="ip ru ls"
 	local rc=0
 	local d
 
 	if [ "$ver" = "6" ]; then
 		desc="IPv6"
-		cmd="ip -6 ru ls"
 	fi
 
 	# make sure the FIB rules exist; routing requires it
 
 	for d in iif oif
 	do
-		$cmd | grep -q "from all $d $vrf lookup $vrf"
+		grep -q "from all $d $vrf lookup $vrf" ${tmpfile}
 		if [ $? -ne 0 ]; then
-			$cmd | grep -q "from all $d $vrf lookup $tbid"
+			grep -q "from all $d $vrf lookup $tbid" ${tmpfile}
 			if [ $? -ne 0 ]; then
-				echo "    ERROR: $desc $d fib rule is missing (see $cmd)"
+				echo "    ERROR: $desc $d fib rule is missing"
 				rc=1
 			fi
 		fi
 
 		# make sure there is only 1 FIB rule; duplicate rules affect
 		# performance
-		n=$($cmd | grep "from all $d $vrf lookup" | wc -l)
+		n=$(grep "from all $d $vrf lookup" ${tmpfile} | wc -l)
 		if [ $n -gt 1 ]; then
-			echo "    WARNING: More than 1 $desc $d fib rules are present (see $cmd)"
+			echo "    WARNING: More than 1 $desc $d fib rules are present"
 			rc=1
 		fi
+
+		sed -ie "/from all $d $vrf lookup/d" ${tmpfile}
 	done
 
 	return $rc
@@ -1225,9 +1251,9 @@ function verify_vrf_fib_rules
 	local tbid=$2
 	local rc=0
 
-	ip_ru_verify $vrf $tbid "4"
+	ip_ru_verify $vrf $tbid ${IPRUFILE} "4"
 	[ $? -ne 0 ] && rc=1
-	ip_ru_verify $vrf $tbid "6"
+	ip_ru_verify $vrf $tbid ${IP6RUFILE} "6"
 	[ $? -ne 0 ] && rc=1
 
 	[ $rc -eq 0 ] && echo "    FIB rules look ok"
@@ -1235,9 +1261,37 @@ function verify_vrf_fib_rules
 	return $rc
 }
 
-function verify_cmd
+function verify_vrf_one
 {
-	local vrf_list="$*"
+	local vrf=$1
+	local tbid=$2
+	local table_check=$3
+	local rc=0
+
+	if [ "$table_check" = "yes" ]; then
+		local tbid_chk=$(vrf_get_table $vrf)
+		if [ "$tbid" != "$tbid_chk" ]; then
+			echo "    Table id mismatch"
+			rc=1
+		fi
+	fi
+
+	# TO-DO: verify iproute2 mapping
+
+	vrf_verify_default_route $vrf
+	[ $? -ne 0 ] && rc=1
+
+	verify_vrf_fib_rules $vrf $tbid
+	[ $? -ne 0 ] && rc=1
+
+	verify_vrf_cgroup $vrf
+	[ $? -ne 0 ] && rc=1
+
+	return $rc
+}
+
+function verify_vrf_all
+{
 	local tbid
 	local rc=0
 	local n=0
@@ -1245,11 +1299,10 @@ function verify_cmd
 	n=$(ip -br link show type vrf | wc -l)
 	if [ $n -eq 0 ]; then
 		echo "No VRFs have been configured"
-		[ -n "$vrf_list" ] && return 1
 		return 0
 	fi
 
-	[ -z "${vrf_list}" ] && vrf_list=$(vrf_get_list)
+	local vrf_list=$(vrf_get_list)
 
 	for vrf in ${vrf_list}
 	do
@@ -1263,29 +1316,54 @@ function verify_cmd
 		echo
 		echo "VRF $vrf table $tbid"
 
-		verify_vrf_fib_rules $vrf $tbid
-		[ $? -ne 0 ] && rc=1
-
-		verify_vrf_cgroup $vrf
-		[ $? -ne 0 ] && rc=1
+		verify_vrf_one ${vrf} ${tbid} "no"
 	done
 
 	verify_local_table
 	[ $? -ne 0 ] && rc=1
 
-	ip ru ls | grep -q '\[detached\]'
+	#
+	# look for stale rules without a VRF
+	#
+	grep -q '\[detached\]' ${IPRUFILE}
 	if [ $? -eq 0 ]; then
 		echo
-		echo "ERROR: Detached IPv4 FIB rules need to be removed. See ip ru ls"
+		echo "ERROR: Detached IPv4 FIB rules need to be removed."
 	fi
+	sed -ie "/\[detached\]/d" ${IPRUFILE}
 
-	ip -6 ru ls | grep -q '\[detached\]'
+	grep -q '\[detached\]' ${IP6RUFILE}
 	if [ $? -eq 0 ]; then
 		echo
-		echo "ERROR: Detached IPv6 FIB rules need to be removed. See ip ru ls"
+		echo "ERROR: Detached IPv6 FIB rules need to be removed."
 	fi
+	sed -ie "/\[detached\]/d" ${IP6RUFILE}
 
 	echo
+
+	return $rc
+}
+
+function verify_cmd
+{
+	local vrf=$(get_vrf_arg ${1})
+	local tbid=$(get_tbid_arg ${2})
+
+	IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
+	IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
+
+	ip ru ls >> ${IPRUFILE}
+	ip -6 ru ls >> ${IP6RUFILE}
+	if [ -n "$vrf" ]; then
+		echo "VRF $vrf table $tbid"
+		verify_vrf_one "$vrf" "$tbid" "yes"
+		rc=$?
+	else
+		verify_vrf_all
+		rc=$?
+	fi
+
+	rm -f ${IPRUFILE} ${IP6RUFILE}
 
 	return $rc
 }

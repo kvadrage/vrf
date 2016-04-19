@@ -53,21 +53,20 @@ function verify_dns_server
 {
 	local dns=$1
 	local table=$2
-	local tmpfile=$3	
 
 	echo
 
-	grep -q "from all to ${dns} lookup ${table}" ${tmpfile}
+	grep -q "from all to ${dns} lookup ${table}" ${IPRUFILE}
 	if [ $? -eq 0 ]; then
 		echo "Rule for dns server ${dns} exists with table ${table}"
-		sed -ie "/from all to ${dns} lookup ${table}/d" ${tmpfile}
+		sed -ie "/from all to ${dns} lookup ${table}/d" ${IPRUFILE}
 		return 0
 	fi
 
-	grep -q "from all to ${dns} lookup " ${tmpfile}
+	grep -q "from all to ${dns} lookup " ${IPRUFILE}
 	if [ $? -eq 0 ]; then
 		echo "Rule for dns server ${dns} exists but table match failed"
-		sed -ie "/from all to ${dns} lookup /d" ${tmpfile}
+		sed -ie "/from all to ${dns} lookup /d" ${IPRUFILE}
 		return 0
 	fi
 
@@ -120,35 +119,56 @@ function vrf_create
 	done < /etc/resolv.conf
 }
 
-function vrf_verify
+function vrf_verify_one
 {
-	local mgmt_name
-
-	# For now only dealing with Management VRF
-	mgmt-vrf status >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "Management VRF not enabled."
-		return 0
-	fi
-	mgmt_name=$(mgmt-vrf name)
-
-	# get a cache of DNS entries
-	tmpfile=$(mktemp /tmp/vrf.XXXXXXXX)
-	ip ru ls | egrep "^${PRIO}:" >> $tmpfile
+	local vrf=$1
+	local tbid=$2
 
 	while read ns ip tmp
 	do
 		[ "$ns" != "nameserver" ] && continue
-		verify_dns_server ${ip} ${mgmt_name} ${tmpfile}
+		verify_dns_server ${ip} ${tbid} ${IPRUFILE}
 	done < /etc/resolv.conf
+}
 
-	if [ -s ${tmpfile} ]; then
+function vrf_verify_all
+{
+	local mgmt_name=$(mgmt-vrf name)
+
+	vrf_verify_one "$mgmt_name" "$mgmt_name"
+
+	if [ -s ${IPRUFILE} ]; then
 		echo
 		echo "Extra FIB rules exist at DNS priority:"
-		cat ${tmpfile}
+		cat ${IPRUFILE}
+	fi
+}
+
+function vrf_verify
+{
+	local vrf=$1
+	local tbid=$2
+	local rc=0
+
+	# For now only dealing with Management VRF
+	mgmt-vrf status
+	[ $? -ne 0 ] && return 0
+
+	# get a cache of DNS entries
+	IPRUFILE=$(mktemp /tmp/vrf.XXXXXXXX)
+	ip ru ls | egrep "^${PRIO}:" >> ${IPRUFILE}
+
+	if [ -z "$vrf" ]; then
+		vrf_verify_all
+		rc=$?
+	else
+		# ip rules have converted id to name
+		# TO-DO: add option to ip to not do that
+		vrf_verify_one ${vrf} "$(mgmt-vrf name)"
+		rc=$?
 	fi
 
-	rm -f ${tmpfile}
+	rm -f ${IPRUFILE}
 }
 
 ################################################################################
@@ -156,8 +176,8 @@ function vrf_verify
 
 # enable verbose logging?
 if [ "$1" = "-v" ]; then
-        VERBOSE=1
-        shift
+	VERBOSE=1
+	shift
 fi
 
 ACTION=$1
@@ -167,6 +187,6 @@ case "$ACTION" in
 	dns_del) remove_dns_server $*;;
 	create)  vrf_create $*;;
 	delete)  vrf_delete $*;;
-	verify)  vrf_verify;;
+	verify)  vrf_verify $*;;
 	*) exit 1;;
 esac
