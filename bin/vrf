@@ -98,10 +98,10 @@ function get_vrf_arg
 {
 	local vrf
 
-	vrf="${1//[^a-zA-Z0-9_]/}"
+	vrf="${1//[^a-zA-Z0-9_-.]/}"
 	if [ "$vrf" != "$1" ]; then
 		echo "Invalid VRF"
-		exit 1
+		return 1
 	fi
 
 	echo $vrf
@@ -115,7 +115,7 @@ function get_tbid_arg
 	tbid="${1//[^0-9]/}"
 	if [ "$tbid" != "$1" ]; then
 		echo "Invalid table id"
-		exit 1
+		return 1
 	fi
 
 	echo $tbid
@@ -205,6 +205,7 @@ function vrf_get_table
 function vrf_table
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
 
 	vrf_exists $vrf
 	if [ $? -ne 0 ]; then
@@ -301,7 +302,11 @@ function vrf_verify_default_route
 function vrf_configure
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	local tbid=$(get_tbid_arg ${2})
+	[ $? -ne 0 ] && return 1
+
 	local mode=$3
 
 	# vrf_configure can be called directly; make sure args exist
@@ -344,7 +349,10 @@ function vrf_configure
 function vrf_teardown
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	local tbid=$(get_tbid_arg ${2})
+	[ $? -ne 0 ] && return 1
 
 	systemd_stop_vrf ${vrf}
 
@@ -385,7 +393,10 @@ function vrf_list
 function vrf_add
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	local tbid=$(get_tbid_arg ${3})
+	[ $? -ne 0 ] && return 1
 
 	if [ "$2" != "table" -o -z "$3" -o -n "$4" ];
 	then
@@ -425,7 +436,10 @@ function vrf_add
 function vrf_delete
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	local tbid=$(get_tbid_arg ${2})
+	[ $? -ne 0 ] && return 1
 
 	if [ -z "$vrf" ];
 	then
@@ -501,6 +515,8 @@ function link_list
 function link_add
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	local dev=${3}
 
 	if [ "$2" != "dev" -o -z "$3" -o -n "$4" ];
@@ -618,6 +634,8 @@ function route_show
 function route_add
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	shift
 
 	dev_exists $vrf
@@ -633,6 +651,8 @@ function route_add
 function route_delete
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	shift
 
 	dev_exists $vrf
@@ -648,6 +668,8 @@ function route_delete
 function route_get
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	shift
 
 	dev_exists $vrf
@@ -702,6 +724,7 @@ EOF
 function task_list_vrf
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
 
 	printf "\nVRF: %-16s\n" $vrf
 	echo "-----------------------"
@@ -775,6 +798,8 @@ function task_list
 function task_set
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	local pid=${2//[^0-9]/}
 
 	if [ "$pid" != "$2" ]; then
@@ -810,6 +835,8 @@ function task_set
 function task_exec
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	shift
 
 	vrf_exists $vrf
@@ -1045,6 +1072,8 @@ function systemd_symlink
 function service_start
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	local onboot="no"
 	local service
 
@@ -1356,7 +1385,10 @@ function verify_vrf_all
 function verify_cmd
 {
 	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	local tbid=$(get_tbid_arg ${2})
+	[ $? -ne 0 ] && return 1
 
 	IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
 	IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
@@ -1410,7 +1442,9 @@ case "$CMD" in
 
 	# bash profile scripts for checking if a vrf exists
 	# $PROG exists <vrf-name>
-	exists) vrf_exists $(get_vrf_arg ${1});;
+	exists) vrf=$(get_vrf_arg ${1}) || exit 1
+		vrf_exists ${vrf}
+		;;
 
 	# task commands
 	t|ta|task) task_cmd $*;;
