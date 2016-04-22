@@ -20,6 +20,10 @@ VERBOSE=0
 #   so our unreachable default should be below that
 RT_METRIC=8192
 
+# Allowed table id range
+TBID_MIN=1001
+TBID_MAX=1255
+
 ################################################################################
 # utilities
 
@@ -397,6 +401,11 @@ function vrf_add
 	vrf_exists ${vrf}
 	if [ $? -eq 0 ]; then
 		echo "VRF already exists"
+		return 1
+	fi
+
+	if [ ${tbid} -lt ${TBID_MIN} -o ${tbid} -gt ${TBID_MAX} ]; then
+		echo "Invalid table id. Must be between ${TBID_MIN} and ${TBID_MAX}"
 		return 1
 	fi
 
