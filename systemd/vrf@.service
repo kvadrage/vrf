@@ -8,7 +8,7 @@ WorkingDirectory=/
 ExecStart=/usr/lib/vrf/systemd-vrf %I
 ExecStartPost=/usr/lib/vrf/systemd-vrf %I start-services
 ExecStop=/usr/lib/vrf/systemd-vrf %I stop
-Restart=always
+Restart=on-failure
 
 [Install]
 WantedBy=basic.target
