@@ -6,7 +6,7 @@ After=network-online.target
 Type=simple
 WorkingDirectory=/
 ExecStart=/usr/lib/mgmt-vrf/dns-watcher.py
-Restart=always
+Restart=on-failure
 
 [Install]
 WantedBy=basic.target
