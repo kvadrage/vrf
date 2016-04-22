@@ -92,20 +92,22 @@ function create_cmd
 
 function verify_cmd
 {
+	local vrf=$1
+	local tbid=$2
+	local rc=0
+
 	echo "vrf verify:"
-	vrf verify $* | \
-	while read line; do
-		echo "    $line"
-	done
+	vrf verify $vrf $tbid
+	[ $? -ne 0 ] && rc=1
 
 	if [ -x ${DNS_HELPER} ]; then
 		echo
 		echo "${DNS_HELPER##*/} verify:"
-		${DNS_HELPER} verify $* |\
-		while read line; do
-			echo "    $line"
-		done
+		${DNS_HELPER} verify $vrf $tbid
+		[ $? -ne 0 ] && rc=1
 	fi
+
+	return $rc
 }
 
 ################################################################################

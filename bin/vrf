@@ -1278,7 +1278,7 @@ function verify_vrf_one
 
 	# TO-DO: verify iproute2 mapping
 
-	vrf_verify_default_route $vrf
+	vrf_verify_default_route $tbid
 	[ $? -ne 0 ] && rc=1
 
 	verify_vrf_fib_rules $vrf $tbid
