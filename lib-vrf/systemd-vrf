@@ -15,7 +15,6 @@ function start_services
 
 	vrf exists ${VRF}
 	if [ $? -ne 0 ]; then
-		logger -p daemon.info "systemd-vrf: VRF ${VRF} does not exist. Nothing to do"
 		return 0
 	fi
 
@@ -48,7 +47,7 @@ function start_services
 
 function do_stop
 {
-	systemctl --user exit
+	systemctl --user exit 2>/dev/null
 }
 
 ################################################################################
@@ -71,10 +70,14 @@ if [ -n "$2" ]; then
 	exit 0
 fi
 
-vrf task set ${VRF} $$
-rc=$?
+vrf exists ${VRF}
+if [ $? -ne 0 ]; then
+	logger -p daemon.info "systemd-vrf: VRF ${VRF} does not exist. Can not start systemd"
+	exit 0
+fi
 
-if [ $rc -ne 0 ]; then
+vrf task set ${VRF} $$
+if [ $? -ne 0 ]; then
 	logger -p daemon.info "systemd-vrf: Failed to set VRF context to ${VRF}. Can not start systemd for VRF"
 	# systemd is not going to fix the VRF situation so no sense in exiting non-0;
 	# it only causes another attempt to start this service
