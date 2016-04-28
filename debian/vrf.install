@@ -1,4 +1,6 @@
 bin/vrf			usr/bin
 etc/profile.d/vrf.sh	etc/profile.d
+etc/vrf/*		etc/vrf
 lib-vrf/*		usr/lib/vrf
-systemd/*		lib/systemd/system
+systemd/dns-watcher.service	lib/systemd/system
+systemd/systemd-vrf-generator	lib/systemd/system-generators
