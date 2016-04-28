@@ -182,6 +182,35 @@ function vrf_delete_cgroup
 }
 
 ################################################################################
+# handle systemd-based services
+
+function systemd_start_vrf
+{
+	local vrf=${1}
+
+	systemctl --no-block list-units  *.service | \
+	    awk '$1 ~ /@.*.service$/ {print $1}' | \
+	    grep "@${vrf}" | \
+	while read s
+	do
+		systemctl --no-block start ${s}
+	done
+}
+
+function systemd_stop_vrf
+{
+	local vrf=${1}
+
+	systemctl --no-block list-units  *.service | \
+	    awk '$1 ~ /@.*.service$/ {print $1}' | \
+	    grep "@${vrf}" | \
+	while read s
+	do
+		systemctl --no-block stop ${s}
+	done
+}
+
+################################################################################
 # vrf device functions
 
 function vrf_exists
@@ -333,9 +362,11 @@ function vrf_configure
 		return 1
 	fi
 
-	# if [ -z "${mode}" ]; then
-		# systemd_start_vrf ${vrf}
-	# fi
+	# restart any systemd processes bound to VRF
+	if [ -z "${mode}" ]; then
+		systemd_stop_vrf ${vrf}
+		systemd_start_vrf ${vrf}
+	fi
 
 	return 0
 }
@@ -349,7 +380,7 @@ function vrf_teardown
 	local tbid=$(get_tbid_arg ${2})
 	[ $? -ne 0 ] && return 1
 
-	# systemd_stop_vrf ${vrf}
+	systemd_stop_vrf ${vrf}
 
 	if [ -n "$tbid" ]; then
 		vrf_remove_default_route ${tbid}
