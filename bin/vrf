@@ -9,8 +9,6 @@
 
 PROG=${0##*/}
 
-SYSTEMD_DIR=/lib/systemd/system
-SYSTEMD_USER=/etc/systemd/user
 CFGDIR=/var/lib/vrf
 
 VERBOSE=0
@@ -335,12 +333,9 @@ function vrf_configure
 		return 1
 	fi
 
-	# start systemd for VRF if it has been configured. Can not
-	# systemctl during boot. For boot systemd config should already
-	# exist and it will start up the service in a VRF
-	if [ -z "${mode}" ]; then
-		systemd_start_if_enabled ${vrf}
-	fi
+	# if [ -z "${mode}" ]; then
+		# systemd_start_vrf ${vrf}
+	# fi
 
 	return 0
 }
@@ -354,7 +349,7 @@ function vrf_teardown
 	local tbid=$(get_tbid_arg ${2})
 	[ $? -ne 0 ] && return 1
 
-	systemd_stop_vrf ${vrf}
+	# systemd_stop_vrf ${vrf}
 
 	if [ -n "$tbid" ]; then
 		vrf_remove_default_route ${tbid}
@@ -451,9 +446,6 @@ function vrf_delete
 		echo "Can not delete the default VRF"
 		return 1
 	fi
-
-	# stop and disable and systemd services that might be running
-	systemd_disable_vrf ${vrf}
 
 	[ -z "$tbid" ] && tbid=$(vrf_get_table $vrf)
 	# rm -f /etc/iproute2/rt_tables.d/${vrf}.conf
@@ -882,305 +874,14 @@ function task_cmd
 		sh|show|li|list|ls) task_list $*;;
 		id|identify) task_identify $*;;
 
-		# used for systemd; needs to be hidden as there are
-		# caveats to change the vrf association of a running
-		# task
+		# used by vrf wrapper; needs to be hidden as there are
+		# caveats to change the vrf association of a running task
 		set)         task_set $*;;
 
 		ex|exec)     task_exec $*;;
 
 		help) task_usage;;
 		*) task_usage; return 1;;
-	esac
-}
-
-
-################################################################################
-# systemd integration
-
-function service_usage
-{
-	cat <<EOF
-
-Tasks running under systemd in a VRF domain:
-    $PROG service start  <vrf> {onboot} <service>
-    $PROG service stop   <vrf> {onboot} <service>
-    $PROG service status <vrf> {<service>}
-EOF
-}
-
-
-# Sanity check on VRF name
-# - can not add device exists check here because disable/stop
-#   commands need to run even if VRF device does not exist
-
-function valid_vrf
-{
-	local vrf=$1
-
-	if [ -z "$vrf" ]; then
-		echo "VRF not given"
-		return 1
-	fi
-
-	if [ "$vrf" = "default" ]; then
-		echo "This command is only used for non-default VRFs"
-		return 1
-	fi
-
-	return 0
-}
-
-#
-# Enable and start systemd user instance for a VRF
-#
-function systemd_enable_vrf
-{
-	local vrf=$1
-
-	log_cmd "systemctl enable vrf@${vrf}.service"
-	systemctl enable vrf@${vrf}.service
-
-	log_cmd "systemctl start  vrf@${vrf}.service"
-	systemctl start  vrf@${vrf}.service
-	rc=$?
-
-	# if we actually start systemd it takes a bit for it to
-	# initialize and be ready to start services; moving too
-	# fast and the service startup fails.
-	sleep 2
-
-	return $rc
-}
-
-#
-# stop and disable systemd user instance for a VRF
-#
-function systemd_disable_vrf
-{
-	local vrf=$1
-
-	log_cmd "systemctl stop vrf@${vrf}.service"
-	systemctl stop vrf@${vrf}.service 2>/dev/null
-
-	log_cmd "systemctl disable vrf@${vrf}.service"
-	systemctl disable vrf@${vrf}.service 2>/dev/null
-
-	return 0
-}
-
-function systemd_stop_vrf
-{
-	local vrf=$1
-
-	log_cmd "systemctl stop vrf@${vrf}.service"
-	systemctl stop vrf@${vrf}.service 2>/dev/null
-
-	return 0
-}
-
-function systemd_start_if_enabled
-{
-	local vrf=$1
-
-	systemctl is-enabled vrf@${vrf}.service >/dev/null 2>&1
-	if [ $? -eq 0 ]; then
-		log_cmd "systemctl start vrf@${vrf}.service"
-		systemctl start vrf@${vrf}.service
-	fi
-
-	return 0
-}
-
-#
-# add an entry from the onboot config file
-#
-function add_service_onboot
-{
-	local vrf=$1
-	local service=$2
-	local cfg=${CFGDIR}/${vrf}.conf
-
-	mkdir -p ${CFGDIR}
-	touch ${cfg}
-
-	grep -q ${service} ${cfg}
-	[ $? -eq 0 ] && return
-
-	echo ${service} >> ${cfg}
-}
-
-#
-# remove an entry from the onboot config file
-#
-function rm_service_onboot
-{
-	local vrf=$1
-	local service=$2
-	local cfg=${CFGDIR}/${vrf}.conf
-
-	if [ ! -e ${cfg} ]; then
-		return
-	fi
-
-	while read s
-	do
-		[ "$s" != "$service" ] && echo $s
-	done < ${cfg} > ${cfg}.new
-
-	mv ${cfg}.new ${cfg}
-}
-
-function normalize_systemd_service
-{
-	local service=$1
-	local vrf=$2
-
-	# for @ services put the vrf on the end
-	case $service in
-		*@) service=${service}${vrf};;
-	esac
-
-	echo $service
-}
-
-function systemd_symlink
-{
-	local vrf=$1
-	local service=$2
-	local oservice=$3
-
-	# if this is a service@ then need to look for the service file
-	# without the appended vrf -- ie., the original service name
-	systemd_file=${SYSTEMD_DIR}/${oservice}.service
-	user_file=${SYSTEMD_USER}/${service}.service
-
-	if [ ! -e ${user_file} ]; then
-		if [ ! -f ${systemd_file} ]; then
-			echo "systemd service file not found. Can not enable in VRF"
-			return 1
-		fi
-		ln -s ${systemd_file} ${user_file}
-	fi
-
-	return 0
-}
-
-#
-# start a service within a VRF context
-#
-function service_start
-{
-	local vrf=$(get_vrf_arg ${1})
-	[ $? -ne 0 ] && return 1
-
-	local onboot="no"
-	local service
-
-	valid_vrf $vrf || return 1
-
-	vrf_exists $vrf
-	if [ $? -ne 0 ]; then
-		echo "VRF does not exist"
-		return 1
-	fi
-
-	vrf_cgroup_exists $vrf || return 1
-
-	shift
-	if [ "$1" = "onboot" ]; then
-		onboot=yes
-		shift
-	fi
-
-	oservice=$1
-	if [ -z "${oservice}" ]; then
-		echo "Service not given"
-		return 1
-	fi
-	service=$(normalize_systemd_service ${oservice} ${vrf})
-
-	# make sure systemd in VRF is enabled
-	systemd_enable_vrf $vrf
-	[ $? -ne 0 ] && return 1
-
-	# create symlink for service to user directory
-	systemd_symlink ${vrf} ${service} ${oservice}
-	[ $? -ne 0 ] && return 1
-
-	if [ "$onboot" = "yes" ]; then
-		add_service_onboot ${vrf} ${service}
-	fi
-
-	XDG_RUNTIME_DIR=/run/systemd-${vrf}
-	export XDG_RUNTIME_DIR
-
-	systemctl --user start ${service}
-}
-
-function service_stop
-{
-	local vrf=$1
-	local onboot="no"
-	local service
-
-	valid_vrf $vrf || return 1
-
-	shift
-	if [ "$1" = "onboot" ]; then
-		onboot=yes
-		shift
-	fi
-
-	oservice=$1
-	if [ -z "$oservice" ]; then
-		echo "Service not given"
-		return 1
-	fi
-	service=$(normalize_systemd_service ${oservice} ${vrf})
-
-	XDG_RUNTIME_DIR=/run/systemd-${vrf}
-	export XDG_RUNTIME_DIR
-
-	if [ "$onboot" = "yes" ]; then
-		rm_service_onboot ${vrf} ${service}
-	fi
-
-	systemctl --user stop $service
-}
-
-function service_status
-{
-	local vrf=$1
-	local service=$2
-
-	if [ -z "$vrf" ]; then
-		vrf=$(task_identify)
-	fi
-
-	valid_vrf $vrf || return 1
-
-	XDG_RUNTIME_DIR=/run/systemd-${vrf}
-	export XDG_RUNTIME_DIR
-
-	# empty ${service} gives status for all services
-	systemctl --user status -l ${service}
-}
-
-function service_cmd
-{
-	local cmd=$1
-	shift
-
-	l3mdev_cgroup_exists
-	[ $? -ne 0 ] && return 1
-
-	case "$cmd" in
-		start)  service_start $*;;
-		stop)   service_stop $*;;
-		status) service_status $*;;
-		help) service_usage;;
-		*) service_usage; return 1;;
 	esac
 }
 
@@ -1423,7 +1124,6 @@ EOF
 	link_usage
 	route_usage
 	task_usage
-	service_usage
 }
 
 ################################################################################
@@ -1451,8 +1151,6 @@ case "$CMD" in
 
 	# allowed shortcut: $PROG exec <vrf> <cmd>
 	exec) task_cmd  exec $*;;
-
-	s|service)  service_cmd $*;;
 
 	# vrf identify   (show VRF for task)
 	id|identify)   task_identify $*;;
