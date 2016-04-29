@@ -347,6 +347,10 @@ function vrf_configure
 		return 1
 	fi
 
+	# only rebuild the VRF if it is not configured properly
+	verify_vrf_one ${vrf} ${tbid} "yes" >/dev/null 2>&1
+	[ $? -eq 0 ] && return 0
+
 	# make sure old remnants of prior vrf are removed
 	vrf_teardown ${vrf} ${tbid} 2>/dev/null
 
@@ -1009,7 +1013,7 @@ function ip_ru_verify
 			rc=1
 		fi
 
-		sed -ie "/from all $d $vrf lookup/d" ${tmpfile}
+		sed -i -e "/from all $d $vrf lookup/d" ${tmpfile}
 	done
 
 	return $rc
@@ -1037,6 +1041,7 @@ function verify_vrf_one
 	local tbid=$2
 	local table_check=$3
 	local rc=0
+	local rm_files=no
 
 	if [ "$table_check" = "yes" ]; then
 		local tbid_chk=$(vrf_get_table $vrf)
@@ -1046,7 +1051,24 @@ function verify_vrf_one
 		fi
 	fi
 
-	# TO-DO: verify iproute2 mapping
+	[ -z "$tbid" ] && tbid=$(vrf_get_table $vrf)
+	if [ -z "$tbid" ]; then
+		vrf_exists ${vrf}
+		if [ $? -ne 0 ]; then
+			echo "    VRF does not exist"
+		else
+			echo "    VRF exists, but failed to get table id"
+		fi
+		return 1
+	fi
+
+	if [ -z ${IPRUFILE} ]; then
+		IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
+		IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
+		ip ru ls >> ${IPRUFILE}
+		ip -6 ru ls >> ${IP6RUFILE}
+		rm_files=yes
+	fi
 
 	vrf_verify_default_route $tbid
 	[ $? -ne 0 ] && rc=1
@@ -1056,6 +1078,8 @@ function verify_vrf_one
 
 	verify_vrf_cgroup $vrf
 	[ $? -ne 0 ] && rc=1
+
+	[ "$rm_files" = "yes" ] && rm -f ${IPRUFILE} ${IP6RUFILE}
 
 	return $rc
 }
@@ -1100,14 +1124,14 @@ function verify_vrf_all
 		echo
 		echo "ERROR: Detached IPv4 FIB rules need to be removed."
 	fi
-	sed -ie "/\[detached\]/d" ${IPRUFILE}
+	sed -i -e "/\[detached\]/d" ${IPRUFILE}
 
 	grep -q '\[detached\]' ${IP6RUFILE}
 	if [ $? -eq 0 ]; then
 		echo
 		echo "ERROR: Detached IPv6 FIB rules need to be removed."
 	fi
-	sed -ie "/\[detached\]/d" ${IP6RUFILE}
+	sed -i -e "/\[detached\]/d" ${IP6RUFILE}
 
 	echo
 
@@ -1128,8 +1152,15 @@ function verify_cmd
 	ip ru ls >> ${IPRUFILE}
 	ip -6 ru ls >> ${IP6RUFILE}
 	if [ -n "$vrf" ]; then
-		echo "VRF $vrf table $tbid"
-		verify_vrf_one "$vrf" "$tbid" "yes"
+		local check_table="yes"
+
+		if [ -z "$tbid" ]; then
+			check_table="no"
+			echo "VRF $vrf:"
+		else
+			echo "VRF $vrf table $tbid:"
+		fi
+		verify_vrf_one "$vrf" "$tbid" "$check_table"
 		rc=$?
 	else
 		verify_vrf_all
