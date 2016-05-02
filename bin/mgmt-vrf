@@ -140,6 +140,7 @@ take effect.
 NOTE: When disabling management VRF any active sessions over the
       management interface need to be restarted.
 
+This command is deprecated and will be removed in a future release.
 EOF
 	return 1
 }
@@ -171,6 +172,7 @@ to have the new configuration take effect.
 NOTE: When enabling management VRF any active sessions over the
       management interface need to be restarted.
 
+This command is deprecated and will be removed in a future release.
 EOF
 	return 1
 }
