@@ -1,5 +1,16 @@
+vrf (1.0-cl3u2) RELEASED; urgency=medium
+
+  * New.Enabled: systemd-based services via <service>@<vrf> notation
+  * New.Enabled: vrf helper for ifupdown2
+  * New.Enabled: Set management VRF context on login via libpam-script
+  * New.Inactive: DNS-Watcher to monitor changes to resolv.conf
+  * New.Deprecated: cl-mgmtvrf is deprecated. Will remove in future release
+  * Various cleanups for first release
+
+ -- Cumulus Networks <dev-support@cumulusnetworks.com>  Wed, 04 May 2016 12:46:48 -0700
+
 vrf (1.0-cl3u1) unstable; urgency=low
 
-  * Initial release.
+  * Initial beta release.
 
- -- David Ahern <dsa@cumulusnetworks.com>  Tue, 01 Mar 2016 22:04:12 -0800
+ -- Cumulus Networks <dev-support@cumulusnetworks.com>  Tue, 01 Mar 2016 22:04:12 -0800
