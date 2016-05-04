@@ -1,0 +1,12 @@
+[Unit]
+Description=systemd for dns-watcher
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/
+ExecStart=/usr/lib/mgmt-vrf/dns-watcher.py
+Restart=on-failure
+
+[Install]
+WantedBy=basic.target

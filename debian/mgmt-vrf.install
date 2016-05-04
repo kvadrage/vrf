@@ -1,0 +1,5 @@
+bin/mgmt-vrf		usr/bin
+lib-mgmt-vrf/*		usr/lib/mgmt-vrf
+libpam-script		usr/share/mgmt-vrf
+etc/dhcp/dhclient-exit-hooks.d/*	etc/dhcp/dhclient-exit-hooks.d
+etc/sudoers.d/mgmt-vrf	etc/sudoers.d

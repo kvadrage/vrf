@@ -1,0 +1,215 @@
+#!/bin/bash
+#
+# Admin script for Management VRF
+
+# Expected name of managment VRF device
+# TO-DO: should this be in a config file?
+MGMT_VRF=mgmt
+
+PROG=${0##*/}
+
+function usage
+{
+	cat <<EOF
+
+Management VRF domain:
+    $PROG mgmt enable
+    $PROG mgmt disable
+    $PROG mgmt status
+    $PROG mgmt verify
+EOF
+}
+
+function dev_get_master
+{
+	local dev=$1
+
+	ip -o link show dev $dev | awk '{
+	for (i = 0; i < NF; ++i) {
+		if ($i == "master") {
+			j=i+1
+			print $j
+			i=NF
+		}
+	}
+	}'
+}
+
+################################################################################
+# Determine if management VRF is enabled. Check looks solely for the
+# expected management VRF device name. If a customer / user decides to
+# name it something else this check will fail. Could add a check for
+# enslavement of eth0, eth1, etc to a VRF device but even that has limits.
+
+function mgmt_status
+{
+	local rc
+	local modstr
+
+	vrf exists $MGMT_VRF
+	rc=$?
+
+	# make sure mgmt device has at least 1 device enslaved
+	# otherwise it means mgmt is defined but not used
+	if [ $rc -eq 0 ]; then
+		n=$(ip -br link show master $MGMT_VRF | wc -l)
+		[ $n -eq 0 ] && rc=1
+	fi
+
+	[ $rc -ne 0 ] && modstr="NOT "
+	echo "Management VRF is ${modstr}enabled."
+
+	return $rc
+}
+
+################################################################################
+# verify config for existing vrfs
+
+# Run a few checks against management vrf expectations
+
+function mgmt_vrf_verify
+{
+	local mgmt_exists=0
+	local rc=0
+	local mdev
+
+	echo
+
+	vrf exists $MGMT_VRF
+	if [ $? -ne 0 ]; then
+		echo "Management VRF does not exist"
+	else
+		mgmt_exists=1
+		echo "Management VRF exists"
+
+		mdev=$(ip -br link show master $MGMT_VRF | awk '{print $1}')
+		if [ -z "$mdev" ]; then
+			echo "    ERROR: Management VRF exists with no enslaved devices"
+			rc=1
+		else
+			echo "    Management VRF interface: " $mdev
+		fi
+
+		echo
+		vrf verify $MGMT_VRF
+	fi
+
+	# eth0 should exist and be checked with warning level
+	# eth1 may exist and it is just informational
+
+	local level="WARNING: "
+	for d in eth0 eth1
+	do
+		ip link show dev ${d} >/dev/null 2>&1 || continue
+
+		m=$(dev_get_master $d)
+		if [ -n "$m" ]; then
+			if [ "$m" = "$MGMT_VRF" ]; then
+				echo "$d is enslaved to Management VRF"
+			else
+				echo "${level}$d is enslaved to $m"
+			fi
+		else
+			if [ $mgmt_exists -eq 1 ]; then
+				echo "${level}$d is not enslaved to management VRF"
+			else
+				echo "$d is not enslaved"
+			fi
+		fi
+
+		# eth0 is the expected interface; all others are info only
+		level="INFO: "
+	done
+
+	return $rc
+}
+
+################################################################################
+# disable Management VRF
+# - ideally want to modify interfaces file
+
+function mgmt_disable
+{
+	cat <<EOF
+
+Management VRF is disabled by removing the "iface $MGMT_VRF" stanza from
+/etc/network/interfaces, and then removing "vrf $MGMT_VRF" from the
+interface stanza for eth0. Use 'ifreload -a' to have the new configuration
+take effect.
+
+NOTE: When disabling management VRF any active sessions over the
+      management interface need to be restarted.
+
+This command is deprecated and will be removed in a future release.
+EOF
+	return 1
+}
+
+################################################################################
+# enable Management VRF
+# - ideally want to modify interfaces file
+
+function mgmt_enable
+{
+	cat <<EOF
+
+Management VRF is configured by adding the following stanza to
+/etc/network/interfaces
+
+    auto $MGMT_VRF
+    iface $MGMT_VRF
+        address 127.0.0.1/8
+        vrf-table auto
+
+And then adding "vrf $MGMT_VRF" to the interface stanza. For example,
+    auto eth0
+    iface eth0 inet dhcp
+        vrf $MGMT_VRF
+
+Remember to add "table $MGMT_VRF" to all static routes. Use 'ifreload -a'
+to have the new configuration take effect.
+
+NOTE: When enabling management VRF any active sessions over the
+      management interface need to be restarted.
+
+This command is deprecated and will be removed in a future release.
+EOF
+	return 1
+}
+
+################################################################################
+# main
+
+# enable verbose logging?
+if [ "$1" = "-v" ]; then
+	VERBOSE=1
+	shift
+fi
+
+cmd=$1
+shift
+
+case "$cmd" in
+	-e|--enable|enable)   mgmt_enable;;
+	-d|--disable|disable) mgmt_disable;;
+	-s|--status|status)   mgmt_status;;
+
+	verify) mgmt_vrf_verify;;
+
+	##########################################
+	# used by profile.d hook
+	# $PROG mgmt set <pid>
+	set) vrf task set $MGMT_VRF $*;;
+
+	# return table id for MGMT_VRF. Used by dhclient hook
+	# $PROG mgmt table
+	table) vrf table $MGMT_VRF;;
+
+	# return name of management VRF device. Used by ping and
+	# traceroute wrapper and vrf-dns-helper
+	name) echo $MGMT_VRF;;
+	##########################################
+
+	help) usage;;
+	*) usage; exit 1;;
+esac

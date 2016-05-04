@@ -1,14 +1,25 @@
-Source: cumulus-vrf
+Source: vrf
 Section: net
 Priority: optional
-Maintainer: Cumulus Networks <support@cumulusnetworks.com>
+Maintainer: Cumulus Networks <dev-support@cumulusnetworks.com>
 Build-Depends: debhelper (>=9)
 Standards-Version: 3.9.6
 Homepage: http://www.cumulusnetworks.com
 
 Package: cumulus-vrf
 Architecture: all
-Depends: iproute2, cgroup-tools, python, ${misc:Depends}
-Description: Cumulus Linux tools for VRF
- This package provides tools (bash profile and commands) for configuring VRF
- (Virtual Routing and Forwarding) for Cumulus Linux.
+Depends: vrf, mgmt-vrf
+Description: Transition package for new names
+
+Package: vrf
+Architecture: all
+Depends: iproute2, cgroup-tools
+Description: Linux tools for VRF
+ This package provides tools for configuring and using the VRF
+ (Virtual Routing and Forwarding) feature in Linux.
+
+Package: mgmt-vrf
+Architecture: all
+Depends: vrf, python, libpam-script, ${misc:Depends}
+Description: Linux tools and config for Management VRF
+ This package provides tools for using the Management VRF configuration.

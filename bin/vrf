@@ -7,21 +7,30 @@
 # user experience for managing VRFs on Linux. Perhaps one day this becomes
 # a subcommand of ip (ip vrf ...)
 
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/cumulus/bin
-
 PROG=${0##*/}
 
-# Expected name of managment VRF device
-# TO-DO: should this be in a config file?
-MGMT_VRF=mgmt
+CFGDIR=/var/lib/vrf
 
-SYSTEMD_DIR=/lib/systemd/system
-SYSTEMD_USER=/etc/systemd/user
-MGMT_VRF_SERVICE=${SYSTEMD_DIR}/mgmt-vrf.service
-CFGDIR=/var/lib/cumulus-vrf
+VERBOSE=0
+
+# metric for unreachable default routes added to each vrf table
+# - static routes for IPv6 default to a metric of 1024 (IP6_RT_PRIO_USER)
+#   so our unreachable default should be below that
+RT_METRIC=8192
+
+# Allowed table id range
+TBID_MIN=1001
+TBID_MAX=1255
 
 ################################################################################
 # utilities
+
+function log_cmd
+{
+	if [ $VERBOSE -eq 1 ]; then
+		echo "${PROG}: $*"
+	fi
+}
 
 function dev_exists
 {
@@ -52,12 +61,13 @@ function dev_get_master
 	local dev=$1
 
 	ip -o link show dev $dev | awk '{
-	for (i = 0; i < NF; ++i)
+	for (i = 0; i < NF; ++i) {
 		if ($i == "master") {
 			j=i+1
 			print $j
 			i=NF
 		}
+	}
 	}'
 }
 
@@ -79,6 +89,34 @@ function normalize_vrf_name
 
 	echo $name
 	return 0
+}
+
+# VRF device name should only contain alphanumeric characters
+function get_vrf_arg
+{
+	local vrf
+
+	vrf="${1//[^a-zA-Z0-9_-.]/}"
+	if [ "$vrf" != "$1" ]; then
+		echo "Invalid VRF"
+		return 1
+	fi
+
+	echo $vrf
+}
+
+# table id should only contain digits
+function get_tbid_arg
+{
+	local tbid
+
+	tbid="${1//[^0-9]/}"
+	if [ "$tbid" != "$1" ]; then
+		echo "Invalid table id"
+		return 1
+	fi
+
+	echo $tbid
 }
 
 ################################################################################
@@ -130,14 +168,46 @@ function vrf_configure_cgroup
 	l3mdev_cgroup_exists
 	[ $? -ne 0 ] && return 0
 
+	log_cmd "cgcreate -g l3mdev:/${vrf}"
 	cgcreate -g l3mdev:/${vrf} || return 1
 
+	log_cmd "cgset -r l3mdev.master-device=${vrf} ${vrf}"
 	cgset -r l3mdev.master-device=${vrf} ${vrf}
 }
 
 function vrf_delete_cgroup
 {
+	log_cmd "cgdelete -g l3mdev:/${1}"
 	cgdelete -g l3mdev:/${1}
+}
+
+################################################################################
+# handle systemd-based services
+
+function systemd_start_vrf
+{
+	local vrf=${1}
+
+	systemctl --no-block list-units  *.service | \
+	    awk '$1 ~ /@.*.service$/ {print $1}' | \
+	    grep "@${vrf}" | \
+	while read s
+	do
+		systemctl --no-block start ${s}
+	done
+}
+
+function systemd_stop_vrf
+{
+	local vrf=${1}
+
+	systemctl --no-block list-units  *.service | \
+	    awk '$1 ~ /@.*.service$/ {print $1}' | \
+	    grep "@${vrf}" | \
+	while read s
+	do
+		systemctl --no-block stop ${s}
+	done
 }
 
 ################################################################################
@@ -161,8 +231,9 @@ function vrf_get_table
 
 function vrf_table
 {
-	local vrf=$1
-	
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	vrf_exists $vrf
 	if [ $? -ne 0 ]; then
 		echo "VRF does not exist"
@@ -211,43 +282,114 @@ function vrf_add_default_route
 {
 	local tbid=$1
 
-	ip route add table ${tbid} unreachable default metric 240 || return 1
-	ip -6 route add table ${tbid} unreachable default metric 240 || return 1
+	log_cmd "ip route add table ${tbid} unreachable default metric $RT_METRIC"
+	ip route add table ${tbid} unreachable default metric $RT_METRIC || return 1
+
+	log_cmd "ip -6 route add table ${tbid} unreachable default metric $RT_METRIC"
+	ip -6 route add table ${tbid} unreachable default metric $RT_METRIC || return 1
 }
 
-function vrf_rem_default_route
+function vrf_remove_default_route
 {
 	local tbid=$1
 
-	ip route flush table ${tbid}
-	ip -6 route flush table ${tbid}
+	log_cmd "ip route delete table ${tbid} unreachable default metric $RT_METRIC"
+	ip route delete table ${tbid} unreachable default metric $RT_METRIC >/dev/null 2>&1
+
+	log_cmd "ip -6 route delete table ${tbid} unreachable default metric $RT_METRIC"
+	ip -6 route delete table ${tbid} unreachable default metric $RT_METRIC >/dev/null 2>&1
+}
+
+function vrf_verify_default_route
+{
+	local tbid=$1
+	local rc=0
+
+	# really want to check metric
+	ip route ls table ${tbid} | grep -q "unreachable default "
+	if [ $? -ne 0 ]; then
+		echo "    ERROR: IPv4 default route missing"
+		rc=1
+	fi
+
+	ip -6 route ls table ${tbid} | grep -q "unreachable default "
+	if [ $? -ne 0 ]; then
+		echo "    ERROR: IPv6 default route missing"
+		rc=1
+	fi
+
+	if [ $rc -eq 0 ]; then
+		echo "    default routes are installed"
+	fi
+
+	return $rc
 }
 
 # Configure a VRF
 function vrf_configure
 {
-	local vrf=$1
-	local tbid=$2
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
 
-	# clear old remnants before adding
+	local tbid=$(get_tbid_arg ${2})
+	[ $? -ne 0 ] && return 1
+
+	local mode=$3
+
+	# vrf_configure can be called directly; make sure args exist
+	if [ -z "$tbid" ]; then
+		usage
+		return 1
+	fi
+
+	if [ -n "$mode" -a "$mode" != "boot" ]; then
+		usage
+		return 1
+	fi
+
+	# only rebuild the VRF if it is not configured properly
+	verify_vrf_one ${vrf} ${tbid} "yes" >/dev/null 2>&1
+	[ $? -eq 0 ] && return 0
+
+	# make sure old remnants of prior vrf are removed
 	vrf_teardown ${vrf} ${tbid} 2>/dev/null
 
-	vrf_add_rules ${vrf} ${tbid} || return 1
-	vrf_add_default_route ${tbid} || return 1
+	vrf_add_default_route ${tbid}
+	if [ $? -ne 0 ]; then
+		echo "Failed to install default routes"
+		return 1
+	fi
+
 	vrf_configure_cgroup ${vrf}
+	if [ $? -ne 0 ]; then
+		echo "Failed to configure cgroup"
+		return 1
+	fi
+
+	# restart any systemd processes bound to VRF
+	if [ -z "${mode}" ]; then
+		systemd_stop_vrf ${vrf}
+		systemd_start_vrf ${vrf}
+	fi
+
+	return 0
 }
 
 # Remove all configuration for VRF
 function vrf_teardown
 {
-	local vrf=$1
-	local tbid=$2
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
+	local tbid=$(get_tbid_arg ${2})
+	[ $? -ne 0 ] && return 1
+
+	systemd_stop_vrf ${vrf}
 
 	if [ -n "$tbid" ]; then
-		vrf_rem_default_route ${tbid}
+		vrf_remove_default_route ${tbid}
 	fi
 
-	vrf_delete_rules ${vrf}
 	vrf_delete_cgroup ${vrf}
 }
 
@@ -280,8 +422,11 @@ function vrf_list
 # Unsupported option; for testing and tooling only
 function vrf_add
 {
-	local vrf=${1}
-	local tbid=${3}
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
+	local tbid=$(get_tbid_arg ${3})
+	[ $? -ne 0 ] && return 1
 
 	if [ "$2" != "table" -o -z "$3" -o -n "$4" ];
 	then
@@ -300,10 +445,17 @@ function vrf_add
 		return 1
 	fi
 
+	if [ ${tbid} -lt ${TBID_MIN} -o ${tbid} -gt ${TBID_MAX} ]; then
+		echo "Invalid table id. Must be between ${TBID_MIN} and ${TBID_MAX}"
+		return 1
+	fi
+
 	# create device
 	ip link add ${vrf} type vrf table ${tbid}
 
 	# echo "${tbid}  ${vrf}" > /etc/iproute2/rt_tables.d/${vrf}.conf
+
+	vrf_add_rules ${vrf} ${tbid}
 
 	vrf_configure ${vrf} ${tbid}
 
@@ -313,8 +465,11 @@ function vrf_add
 # Unsupported option; for testing and tooling only
 function vrf_delete
 {
-	local vrf=${1}
-	local tbid=${2}
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
+	local tbid=$(get_tbid_arg ${2})
+	[ $? -ne 0 ] && return 1
 
 	if [ -z "$vrf" ];
 	then
@@ -327,13 +482,12 @@ function vrf_delete
 		return 1
 	fi
 
-	# stop and disable and systemd services that might be running
-	systemd_disable_vrf ${vrf}
-
 	[ -z "$tbid" ] && tbid=$(vrf_get_table $vrf)
 	# rm -f /etc/iproute2/rt_tables.d/${vrf}.conf
 
-	vrf_exists ${vrf} && ip link delete dev ${vrf}
+	ip link delete dev ${vrf} 2>/dev/null
+
+	vrf_delete_rules ${vrf}
 
 	vrf_teardown ${vrf} ${tbid} 2>/dev/null
 }
@@ -387,7 +541,9 @@ function link_list
 
 function link_add
 {
-	local vrf=${1}
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	local dev=${3}
 
 	if [ "$2" != "dev" -o -z "$3" -o -n "$4" ];
@@ -504,7 +660,9 @@ function route_show
 
 function route_add
 {
-	local vrf=${1}
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	shift
 
 	dev_exists $vrf
@@ -519,7 +677,9 @@ function route_add
 
 function route_delete
 {
-	local vrf=${1}
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	shift
 
 	dev_exists $vrf
@@ -534,7 +694,9 @@ function route_delete
 
 function route_get
 {
-	local vrf=${1}
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	shift
 
 	dev_exists $vrf
@@ -588,7 +750,8 @@ EOF
 
 function task_list_vrf
 {
-	local vrf=$1
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
 
 	printf "\nVRF: %-16s\n" $vrf
 	echo "-----------------------"
@@ -657,13 +820,19 @@ function task_list
 # Changing the context of a running task only affects future ipv4 and
 # ipv6 sockets. This option is used by various OS scripts to set
 # the context of a parent process before exec'ing another process
-# - a proper example of this should be used.
+# - a proper example of how this should be used.
 
 function task_set
 {
-	local vrf=$1
-	local pid=$2
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
 
+	local pid=${2//[^0-9]/}
+
+	if [ "$pid" != "$2" ]; then
+		echo "Invalid process id"
+		return 1
+	fi
 	if [ -n "$3" ]; then
 		task_usage
 		return 1
@@ -692,30 +861,39 @@ function task_set
 
 function task_exec
 {
-	local vrf=$1
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
 	shift
 
 	vrf_exists $vrf
 	if [ $? -ne 0 ]; then
-		echo "VRF does not exist"
+		echo "ERROR: VRF does not exist"
 		return 1
 	fi
 
 	if [ -z "$1" ]; then
-		echo "No command to run"
-		return 1
-	fi
-
-	which cgexec >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
-		echo "cgexec not found. cgroups tools installed?"
+		echo "ERROR: No command to run"
 		return 1
 	fi
 
 	if [ "$vrf" = "default" ]; then
 		cgexec -g l3mdev:/ $*
 	else
-		cgexec -g l3mdev:${vrf} $*
+		vrf_cgroup_exists $vrf >/dev/null 2>&1
+		if [ $? -ne 0 ]; then
+			echo "ERROR: cgroup does not exist for VRF"
+			return 1
+		fi
+
+		# make sure cgroup has master device set
+		cgget -g l3mdev:/${vrf} -v -n | grep -q " ==> $vrf"
+		if [ $? -ne 0 ]; then
+			echo "ERROR: cgroup is misconfigured for VRF"
+			return 1
+		fi
+
+		cgexec -g l3mdev:/${vrf} $*
 	fi
 }
 
@@ -731,9 +909,8 @@ function task_cmd
 		sh|show|li|list|ls) task_list $*;;
 		id|identify) task_identify $*;;
 
-		# used for systemd; needs to be hidden as there are
-		# caveats to change the vrf association of a running
-		# task
+		# used by vrf wrapper; needs to be hidden as there are
+		# caveats to change the vrf association of a running task
 		set)         task_set $*;;
 
 		ex|exec)     task_exec $*;;
@@ -743,432 +920,8 @@ function task_cmd
 	esac
 }
 
-
-################################################################################
-# systemd integration
-
-function service_usage
-{
-	cat <<EOF
-
-Tasks running under systemd in a VRF domain:
-    $PROG service start  <vrf> {onboot} <service>
-    $PROG service stop   <vrf> {onboot} <service>
-    $PROG service status <vrf> {<service>}
-EOF
-}
-
-
-# Sanity check on VRF name
-# - can not add device exists check here because disable/stop
-#   commands need to run even if VRF device does not exist
-
-function valid_vrf
-{
-	local vrf=$1
-
-	if [ -z "$vrf" ]; then
-		echo "VRF not given"
-		return 1
-	fi
-
-	if [ "$vrf" = "default" ]; then
-		echo "This command is only used for non-default VRFs"
-		return 1
-	fi
-
-	if [ "$vrf" != "$MGMT_VRF" ]; then
-		echo "This command is currently limited to management VRF."
-		return 1
-	fi
-
-	return 0
-}
-
-#
-# Enable and start systemd user instance for a VRF
-#
-function systemd_enable_vrf
-{
-	local vrf=$1
-	local f
-
-	vrf_exists $vrf
-	if [ $? -ne 0 ]; then
-		echo "VRF does not exist"
-		return 1
-	fi
-
-	# convert VRF name to systemd service name
-	# - want to include "vrf" in the service name
-
-	name=$(normalize_vrf_name $vrf)
-	if [ $? -ne 0 ]; then
-		echo "Invalid VRF"
-		return 1
-	fi
-
-	#
-	# create systemd service file for VRF
-	#
-	f=${SYSTEMD_DIR}/${name}.service
-	if [ ! -e $f ]; then
-		cp $MGMT_VRF_SERVICE $f
-		sed -ie "s/start-systemd-vrf mgmt/start-systemd-vrf $vrf/" $f
-		sed -ie "s/Description=Management VRF/Description=VRF $vrf/" $f
-	fi
-
-	systemctl enable ${name}.service
-	systemctl start  ${name}.service
-}
-
-#
-# stop and disable systemd user instance for a VRF
-#
-function systemd_disable_vrf
-{
-	local vrf=$1
-	local f
-
-	# do not check existence of vrf device; it can be deleted before
-	# process shutdown
-
-	name=$(normalize_vrf_name $vrf)
-	if [ $? -ne 0 ]; then
-		echo "Invalid VRF"
-		return 1
-	fi
-
-	f=${SYSTEMD_DIR}/${name}.service
-	[ ! -f ${f} ] && return 0
-
-	systemctl stop ${name}.service
-	rc=$?
-	systemctl disable ${name}.service
-
-	#
-	# remove systemd service file except for mgmt vrf
-	#
-	if [ "$f" != "$MGMT_VRF_SERVICE" ]; then
-		rm -f $f
-	fi
-
-	return $rc
-}
-
-#
-# add an entry from the onboot config file
-#
-function add_service_onboot
-{
-	local vrf=$1
-	local service=$2
-	local cfg=${CFGDIR}/${vrf}.conf
-
-	mkdir -p ${CFGDIR}
-	touch ${cfg}
-
-	grep -q ${service} ${cfg}
-	[ $? -eq 0 ] && return
-
-	echo ${service} >> ${cfg}
-}
-
-#
-# remove an entry from the onboot config file
-#
-function rm_service_onboot
-{
-	local vrf=$1
-	local service=$2
-	local cfg=${CFGDIR}/${vrf}.conf
-
-	if [ ! -e ${cfg} ]; then
-		return
-	fi
-
-	while read s
-	do
-		[ "$s" != "$service" ] && echo $s
-	done < ${cfg} > ${cfg}.new
-
-	mv ${cfg}.new ${cfg}
-}
-
-#
-# See if a service is running in the default VRF context. If so
-# attempts to start service in other VRF will fail.
-#
-function check_default_vrf
-{
-	local service=$1
-
-	systemctl -n 0 status ${service}.service 2>/dev/null | egrep -q 'Active.*running'
-	if [ $? -eq 0 ]; then
-		echo "Service is currently running in default VRF."
-		return 1
-	fi
-
-	systemctl -n 0 status ${service}.service 2>/dev/null | egrep -q 'Loaded.*enabled'
-	if [ $? -eq 0 ]; then
-		echo "Service is currently enabled in default VRF."
-		return 1
-	fi
-
-	return 0
-}
-
-#
-# start a service within a VRF context
-#
-function service_start
-{
-	local vrf=$1
-	local onboot="no"
-	local service
-
-	valid_vrf $vrf || return 1
-
-	vrf_exists $vrf
-	if [ $? -ne 0 ]; then
-		echo "VRF does not exist"
-		return 1
-	fi
-
-	vrf_cgroup_exists $vrf || return 1
-
-	shift
-	if [ "$1" = "onboot" ]; then
-		onboot=yes
-		shift
-	fi
-
-	service=$1
-	if [ -z "$service" ]; then
-		echo "Service not given"
-		return 1
-	fi
-
-	#
-	# is this service running in default context?
-	#
-	check_default_vrf $service || return 1
-
-	# make sure systemd in VRF is enabled
-	systemd_enable_vrf $vrf
-	[ $? -ne 0 ] && return 1
-
-	#
-	# create symlink for service to user directory
-	#
-	if [ ! -e ${SYSTEMD_USER}/${service}.service ]; then
-		if [ ! -f ${SYSTEMD_DIR}/${service}.service ]; then
-			echo "systemd service file not found."
-			return 1
-		fi
-		ln -s ${SYSTEMD_DIR}/${service}.service ${SYSTEMD_USER}
-	fi
-
-	if [ "$onboot" = "yes" ]; then
-		add_service_onboot ${vrf} ${service}
-	fi
-
-	XDG_RUNTIME_DIR=/run/systemd-${vrf}
-	export XDG_RUNTIME_DIR
-
-	systemctl --user start ${service}
-}
-
-function service_stop
-{
-	local vrf=$1
-	local onboot="no"
-	local service
-
-	valid_vrf $vrf || return 1
-
-	shift
-	if [ "$1" = "onboot" ]; then
-		onboot=yes
-		shift
-	fi
-
-	service=$1
-	if [ -z "$service" ]; then
-		echo "Service not given"
-		return 1
-	fi
-
-	XDG_RUNTIME_DIR=/run/systemd-${vrf}
-	export XDG_RUNTIME_DIR
-
-	if [ "$onboot" = "yes" ]; then
-		rm_service_onboot ${vrf} ${service}
-	fi
-
-	systemctl --user stop $service
-}
-
-function service_status
-{
-	local vrf=$1
-	local service=$2
-
-	if [ -z "$vrf" ]; then
-		vrf=$(task_identify)
-	fi
-
-	valid_vrf $vrf || return 1
-
-	XDG_RUNTIME_DIR=/run/systemd-${vrf}
-	export XDG_RUNTIME_DIR
-
-	# empty ${service} gives status for all services
-	systemctl --user status -l ${service}
-}
-
-function service_cmd
-{
-	local cmd=$1
-	shift
-
-	l3mdev_cgroup_exists
-	[ $? -ne 0 ] && return 1
-
-	case "$cmd" in
-		start)  service_start $*;;
-		stop)   service_stop $*;;
-		status) service_status $*;;
-
-		# hidden command for ifupdown2 when it deletes a VRF
-		# $PROG service disable <vrf>
-		disable) systemd_disable_vrf $*;;
-
-		help) service_usage;;
-		*) service_usage; return 1;;
-	esac
-}
-
-################################################################################
-# Management VRF
-
-function mgmt_usage
-{
-	cat <<EOF
-
-Management VRF domain:
-    $PROG mgmt status
-EOF
-}
-
-# Determine if management VRF is enabled. Check looks solely for
-# the expected management VRF device name. If a customer / user
-# decides to name it something else this check will fail.
-# Can add check for eth0, eth1, ... enslavement (is it enslaved
-# to a VRF device) but even that has limits.
-
-function mgmt_status
-{
-	local rc
-	local modstr
-
-	vrf_exists $MGMT_VRF
-	rc=$?
-
-	# make sure mgmt device has at least 1 device enslaved
-	# otherwise it means mgmt is defined but not used
-	if [ $rc -eq 0 ]; then
-		n=$(ip -br link show master $MGMT_VRF | wc -l)
-		[ $n -eq 0 ] && rc=1
-	fi
-
-	[ $rc -ne 0 ] && modstr="NOT "
-	echo "Management VRF is ${modstr}enabled."
-
-	return $rc
-}
-
-function mgmt_cmd
-{
-	local cmd=$1
-	shift
-
-	case "$cmd" in
-		status) mgmt_status $*;;
-
-		# used by profile.d hook
-		# $PROG mgmt set <pid>
-		set) task_set $MGMT_VRF $*;;
-
-		# return table id for MGMT_VRF. Used by dhclient hook
-		# $PROG mgmt table
-		table) vrf_table $MGMT_VRF;;
-
-		# return name of management VRF device. Used by ping and
-		# traceroute wrapper.
-		dev) echo $MGMT_VRF; return 0;;
-
-		help) mgmt_usage;;
-		*) mgmt_usage; return 1;;
-	esac
-}
-
 ################################################################################
 # verify config for existing vrfs
-
-# Run a few checks against management vrf expectations
-
-function verify_mgmt_vrf
-{
-	local mgmt_exists=0
-	local rc=0
-	local mdev
-
-	echo
-
-	vrf_exists $MGMT_VRF
-	if [ $? -ne 0 ]; then
-		echo "Management VRF does not exist"
-	else
-		mgmt_exists=1
-		echo "Management VRF exists"
-
-		mdev=$(ip -br li sh master $MGMT_VRF | awk '{print $1}')
-		if [ -z "$mdev" ]; then
-			echo "    ERROR: Management VRF exists with no enslaved devices"
-			rc=1
-		else
-			echo "    Management VRF interface: " $mdev
-		fi
-	fi
-
-	# eth0 should exist and be checked with warning level
-	# eth1 may exist and it is just informational
-
-	local level="WARNING: "
-	for d in eth0 eth1
-	do
-		dev_exists $d || continue
-
-		m=$(dev_get_master $d)
-		if [ -n "$m" ]; then
-			if [ "$m" = "$MGMT_VRF" ]; then
-				echo "    $d is enslaved to Management VRF"
-			else
-				echo "    ${level}$d is enslaved to $m"
-			fi
-		else
-			if [ $mgmt_exists -eq 1 ]; then
-				echo "    ${level}$d is not enslaved to management VRF"
-			else
-				echo "    $d is not enslaved"
-			fi
-		fi
-		level="INFO: "
-	done
-
-	return $rc
-}
 
 function verify_vrf_cgroup
 {
@@ -1190,7 +943,7 @@ function verify_vrf_cgroup
 	#     net[4026531957]: device index 62 ==> red
 	# important part is the index N ==> dev-name
 
-	grep -q "index $idx ==> $vrf" /sys/fs/cgroup/l3mdev/${vrf}/l3mdev.master-device
+	cgget -g l3mdev:/${vrf} -v -n | grep -q "index $idx ==> $vrf"
 	if [ $? -ne 0 ]; then
 		echo "    ERROR: cgroup is misconfigured"
 		return 1
@@ -1229,37 +982,38 @@ function ip_ru_verify
 {
 	local vrf=$1
 	local tbid=$2
-	local ver=$3
+	local tmpfile=$3
+	local ver=$4
 	local desc="IPv4"
-	local cmd="ip ru ls"
 	local rc=0
 	local d
 
 	if [ "$ver" = "6" ]; then
 		desc="IPv6"
-		cmd="ip -6 ru ls"
 	fi
 
 	# make sure the FIB rules exist; routing requires it
 
 	for d in iif oif
 	do
-		$cmd | grep -q "from all $d $vrf lookup $vrf"
+		grep -q "from all $d $vrf lookup $vrf" ${tmpfile}
 		if [ $? -ne 0 ]; then
-			$cmd | grep -q "from all $d $vrf lookup $tbid"
+			grep -q "from all $d $vrf lookup $tbid" ${tmpfile}
 			if [ $? -ne 0 ]; then
-				echo "    ERROR: $desc $d fib rule is missing (see $cmd)"
+				echo "    ERROR: $desc $d fib rule is missing"
 				rc=1
 			fi
 		fi
 
 		# make sure there is only 1 FIB rule; duplicate rules affect
 		# performance
-		n=$($cmd | grep "from all $d $vrf lookup" | wc -l)
+		n=$(grep "from all $d $vrf lookup" ${tmpfile} | wc -l)
 		if [ $n -gt 1 ]; then
-			echo "    WARNING: More than 1 $desc $d fib rules are present (see $cmd)"
+			echo "    WARNING: More than 1 $desc $d fib rules are present"
 			rc=1
 		fi
+
+		sed -i -e "/from all $d $vrf lookup/d" ${tmpfile}
 	done
 
 	return $rc
@@ -1271,9 +1025,9 @@ function verify_vrf_fib_rules
 	local tbid=$2
 	local rc=0
 
-	ip_ru_verify $vrf $tbid "4"
+	ip_ru_verify $vrf $tbid ${IPRUFILE} "4"
 	[ $? -ne 0 ] && rc=1
-	ip_ru_verify $vrf $tbid "6"
+	ip_ru_verify $vrf $tbid ${IP6RUFILE} "6"
 	[ $? -ne 0 ] && rc=1
 
 	[ $rc -eq 0 ] && echo "    FIB rules look ok"
@@ -1281,9 +1035,57 @@ function verify_vrf_fib_rules
 	return $rc
 }
 
-function verify_cmd
+function verify_vrf_one
 {
-	local vrf
+	local vrf=$1
+	local tbid=$2
+	local table_check=$3
+	local rc=0
+	local rm_files=no
+
+	if [ "$table_check" = "yes" ]; then
+		local tbid_chk=$(vrf_get_table $vrf)
+		if [ "$tbid" != "$tbid_chk" ]; then
+			echo "    Table id mismatch"
+			rc=1
+		fi
+	fi
+
+	[ -z "$tbid" ] && tbid=$(vrf_get_table $vrf)
+	if [ -z "$tbid" ]; then
+		vrf_exists ${vrf}
+		if [ $? -ne 0 ]; then
+			echo "    VRF does not exist"
+		else
+			echo "    VRF exists, but failed to get table id"
+		fi
+		return 1
+	fi
+
+	if [ -z ${IPRUFILE} ]; then
+		IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
+		IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
+		ip ru ls >> ${IPRUFILE}
+		ip -6 ru ls >> ${IP6RUFILE}
+		rm_files=yes
+	fi
+
+	vrf_verify_default_route $tbid
+	[ $? -ne 0 ] && rc=1
+
+	verify_vrf_fib_rules $vrf $tbid
+	[ $? -ne 0 ] && rc=1
+
+	verify_vrf_cgroup $vrf
+	[ $? -ne 0 ] && rc=1
+
+	[ "$rm_files" = "yes" ] && rm -f ${IPRUFILE} ${IP6RUFILE}
+
+	return $rc
+}
+
+function verify_vrf_all
+{
 	local tbid
 	local rc=0
 	local n=0
@@ -1294,17 +1096,10 @@ function verify_cmd
 		return 0
 	fi
 
-	verify_mgmt_vrf
-	[ $? -ne 0 ] && rc=1
+	local vrf_list=$(vrf_get_list)
 
-	vrf_get_list |
-	while read vrf
+	for vrf in ${vrf_list}
 	do
-		# managemnet vrf handled in verify_mgmt_vrf
-		[ "$vrf" = "$MGMT_VRF" ] && continue
-
-		echo
-
 		tbid=$(vrf_get_table $vrf)
 		if [ -z "$tbid" ]; then
 			echo "ERROR: VRF $vrf: failed to get table id; VRF is misconfigured"
@@ -1312,31 +1107,67 @@ function verify_cmd
 			continue
 		fi
 
+		echo
 		echo "VRF $vrf table $tbid"
 
-		verify_vrf_fib_rules $vrf $tbid
-		[ $? -ne 0 ] && rc=1
-
-		verify_vrf_cgroup $vrf
-		[ $? -ne 0 ] && rc=1
+		verify_vrf_one ${vrf} ${tbid} "no"
 	done
 
 	verify_local_table
 	[ $? -ne 0 ] && rc=1
 
-	ip ru ls | grep -q '\[detached\]'
+	#
+	# look for stale rules without a VRF
+	#
+	grep -q '\[detached\]' ${IPRUFILE}
 	if [ $? -eq 0 ]; then
 		echo
-		echo "ERROR: Detached IPv4 FIB rules need to be removed. See ip ru ls"
+		echo "ERROR: Detached IPv4 FIB rules need to be removed."
 	fi
+	sed -i -e "/\[detached\]/d" ${IPRUFILE}
 
-	ip -6 ru ls | grep -q '\[detached\]'
+	grep -q '\[detached\]' ${IP6RUFILE}
 	if [ $? -eq 0 ]; then
 		echo
-		echo "ERROR: Detached IPv6 FIB rules need to be removed. See ip ru ls"
+		echo "ERROR: Detached IPv6 FIB rules need to be removed."
 	fi
+	sed -i -e "/\[detached\]/d" ${IP6RUFILE}
 
 	echo
+
+	return $rc
+}
+
+function verify_cmd
+{
+	local vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
+
+	local tbid=$(get_tbid_arg ${2})
+	[ $? -ne 0 ] && return 1
+
+	IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
+	IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
+
+	ip ru ls >> ${IPRUFILE}
+	ip -6 ru ls >> ${IP6RUFILE}
+	if [ -n "$vrf" ]; then
+		local check_table="yes"
+
+		if [ -z "$tbid" ]; then
+			check_table="no"
+			echo "VRF $vrf:"
+		else
+			echo "VRF $vrf table $tbid:"
+		fi
+		verify_vrf_one "$vrf" "$tbid" "$check_table"
+		rc=$?
+	else
+		verify_vrf_all
+		rc=$?
+	fi
+
+	rm -f ${IPRUFILE} ${IP6RUFILE}
 
 	return $rc
 }
@@ -1355,12 +1186,16 @@ EOF
 	link_usage
 	route_usage
 	task_usage
-	service_usage
-	mgmt_usage
 }
 
 ################################################################################
 # main
+
+# enable verbose logging?
+if [ "$1" = "-v" ]; then
+	VERBOSE=1
+	shift
+fi
 
 CMD=$1
 shift
@@ -1369,7 +1204,9 @@ case "$CMD" in
 
 	# bash profile scripts for checking if a vrf exists
 	# $PROG exists <vrf-name>
-	exists) vrf_exists $*;;
+	exists) vrf=$(get_vrf_arg ${1}) || exit 1
+		vrf_exists ${vrf}
+		;;
 
 	# task commands
 	t|ta|task) task_cmd $*;;
@@ -1377,15 +1214,19 @@ case "$CMD" in
 	# allowed shortcut: $PROG exec <vrf> <cmd>
 	exec) task_cmd  exec $*;;
 
-	s|service)  service_cmd $*;;
-
 	# vrf identify   (show VRF for task)
 	id|identify)   task_identify $*;;
 
 	li|link)  link_cmd $*;;
 	ro|route) route_cmd $*;;
 
-	m|mgmt) mgmt_cmd $*;;
+	# used by mgmt-vrf
+	table) vrf_table $*;;
+
+	####################################################
+	# used by ifupdown2
+	configure) vrf_configure $*;;
+	teardown)  vrf_teardown  $*;;
 
 	####################################################
 	# these options are for testing and tooling; they
@@ -1393,8 +1234,7 @@ case "$CMD" in
 	add)        vrf_add $*;;
 	del|delete) vrf_delete $*;;
 
-	c|cgroup)   vrf_configure_cgroup $*;;
-	verify)     verify_cmd;;
+	verify)     verify_cmd $*;;
 	# end unsupported options
 	####################################################
 

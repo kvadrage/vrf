@@ -1,0 +1,18 @@
+#!/bin/bash
+
+set -e
+
+DIVERT_DIR=/usr/share/vrf
+
+# undo package diverts
+for f in /etc/skel/.bashrc /etc/bash.bashrc
+do
+	[ ! -e ${DIVERT_DIR}/${f} ] && continue
+	dpkg-divert --remove ${f}
+	rm -f ${f}
+	mv -f ${DIVERT_DIR}/${f} ${f}
+done
+
+#DEBHELPER#
+
+exit 0

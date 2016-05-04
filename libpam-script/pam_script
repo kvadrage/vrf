@@ -1,0 +1,42 @@
+#! /bin/sh
+
+# COPYRIGHT AND LICENCE
+# 
+# AUTHOR: R K Owen, Ph.D., <rkowen@nersc.gov>
+# of the National Energy Research Scientific Computing Center (NERSC),
+# a Division of the Lawrence Berkeley National Laboratory (LBL),
+# funded by the U.S. Department of Energy.
+# 
+# Copyright (C) 2008 The Regents of the University of California
+# 
+# This is free software; you can redistribute it
+# and/or modify it under the terms of the GNU General
+# Public License as published by the Free Software Foundation;
+# version 2.0 of the License.
+
+basedir=`dirname $0`
+[ x"$basedir" = x"" ] && basedir="."
+fname=`basename $0`
+PAMSCRIPTDIR=${PAMSCRIPTDIR:-$basedir/pam-script.d}
+
+export PAMSCRIPT_PPID=$PPID
+
+# process files in pam-script.d/
+mtype=''
+PAM_SCRIPT_STATUS=0
+export PAM_SCRIPT_STATUS
+case $fname in
+	*_auth)		mtype='_auth' ;;
+	*_acct)		mtype='_acct' ;;
+	*_passwd)	mtype='_passwd' ;;
+	*_ses_open)	mtype='_ses_open' ;;
+	*_ses_close)	mtype='_ses_close' ;;
+esac
+
+for script in $PAMSCRIPTDIR/*$mtype; do
+	if [ -e $script ]; then
+		/bin/sh $script "$@" || PAM_SCRIPT_STATUS=1
+	fi
+	export PAM_SCRIPT_STATUS
+done
+exit $PAM_SCRIPT_STATUS

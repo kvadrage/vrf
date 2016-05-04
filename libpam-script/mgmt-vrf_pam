@@ -1,0 +1,21 @@
+#!/bin/bash
+
+# do nothing for sudo
+if [ "$PAM_SERVICE" = "sudo" ]; then
+	exit 0
+fi
+
+mgmt-vrf status >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+	VRF=$(vrf identify prompt)
+	if [ -z "$VRF" ]; then
+		if [ -z "$PAMSCRIPT_PPID" ]; then
+			logger -p auth.err "PAMSCRIPT_PPID not set; can not set VRF context"
+			exit 1
+		fi
+
+		mgmt-vrf set $PAMSCRIPT_PPID
+	fi
+fi
+
+exit 0

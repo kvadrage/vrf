@@ -1,3 +1,0 @@
-Defaults env_keep += VRF
-
-cumulus ALL = NOPASSWD: /usr/cumulus/bin/cl-vrf
