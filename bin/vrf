@@ -187,7 +187,15 @@ function vrf_configure_cgroup
 function vrf_delete_cgroup
 {
 	log_cmd "cgdelete -g l3mdev:/${1}"
-	cgdelete -g l3mdev:/${1}
+
+	# handle transient EBUSY error by trying again
+	for n in $(seq 1 5); do
+		cgdelete -g l3mdev:/${1}
+		[ $? -eq 0 ] && return 0
+		sleep 1
+	done
+
+	return 1
 }
 
 ################################################################################
@@ -400,6 +408,12 @@ function vrf_teardown
 	fi
 
 	vrf_delete_cgroup ${vrf}
+	if [ $? -ne 0 ]; then
+		echo "Failed to delete cgroup for vrf ${vrf}"
+		return 1
+	fi
+
+	return 0
 }
 
 function vrf_list
