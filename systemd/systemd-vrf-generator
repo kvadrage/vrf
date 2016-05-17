@@ -37,10 +37,27 @@ do_cleanup()
 	done
 }
 
+EXEC_DIR=
+
+directive_seen()
+{
+	local d
+
+	for d in $EXEC_DIR
+	do
+		[ "$d" = "$1" ] && return 0
+	done
+
+	EXEC_DIR="$EXEC_DIR $1"
+
+	return 1
+}
+
 create_instance()
 {
 	local dest=${1}
-        local s=${2}
+	local s=${2}
+	local d
 
         local file=${SYSTEMD_SVC}/${s}.service
         local ifile=${SYSTEMD_SVC}/${s}@.service
@@ -62,6 +79,9 @@ create_instance()
 		ifile=${vrffile}
 	fi
 
+	# for each Exec line in the service handle prepend vrf exec.
+	# Keep the '-' and '@' characters after the '=' if applicable.
+	# Commands must be absolute path which allows parsing on the '/'
 	mkdir -p ${vrfunit}
 	(
 	echo "# ${VRFGEN_NOTE}"
@@ -69,10 +89,21 @@ create_instance()
 	echo "SourcePath=${file}"
 	echo
 	echo "[Service]"
-        awk -F'=' '$1 ~ /^Exec/ {
-                print $1 "="
-                print $1 "=/usr/bin/vrf task exec %I " $2
-        }' ${ifile}
+	while read line; do
+		if [[ $line =~ ("Exec".*=[[:space:]]*[^/]*)(\/.*) ]]; then
+			# directive is the part before the '='
+			set -- ${BASH_REMATCH[1]/=*}
+			d=${1}
+
+			# only write reset for directive first time we see it
+			directive_seen ${d}
+			[ $? -eq 1 ] && echo "${d}="
+
+			# use full match here to keep all context
+			echo "${BASH_REMATCH[1]}/usr/bin/vrf task exec %I ${BASH_REMATCH[2]}"
+		fi
+	done < ${ifile}
+
 	) > ${vrfunit}/vrf.conf
 }
 
@@ -86,6 +117,9 @@ do_cleanup ${1}
 
 while read service
 do
+	# skip comments and blank lines
+	[ -z "${service}" -o "${service:0:1}" = "#" ] && continue
+
 	create_instance ${dest} ${service}
 done < ${VRFCONF}
 
