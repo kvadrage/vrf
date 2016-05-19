@@ -186,7 +186,7 @@ function vrf_configure_cgroup
 
 function vrf_delete_cgroup
 {
-	[ -e /sys/fs/cgroup/l3mdev/${vrf} ] && return 0
+	[ ! -e /sys/fs/cgroup/l3mdev/${vrf} ] && return 0
 
 	log_cmd "cgdelete -g l3mdev:/${1}"
 
