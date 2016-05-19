@@ -216,16 +216,17 @@ function systemd_start_vrf
 	done
 }
 
+# Do not call during boot
 function systemd_stop_vrf
 {
 	local vrf=${1}
 
-	systemctl --no-block list-units  *.service | \
+	systemctl list-units  *.service | \
 	    awk '$1 ~ /@.*.service$/ {print $1}' | \
 	    grep "@${vrf}" | \
 	while read s
 	do
-		systemctl --no-block stop ${s}
+		systemctl stop ${s}
 	done
 }
 
@@ -371,7 +372,10 @@ function vrf_configure
 	[ $? -eq 0 ] && return 0
 
 	# make sure old remnants of prior vrf are removed
-	vrf_teardown ${vrf} ${tbid} 2>/dev/null
+	# no need if this boot up
+	if [ -z "${mode}" ]; then
+		vrf_teardown ${vrf} ${tbid} 2>/dev/null
+	fi
 
 	vrf_add_default_route ${tbid}
 	if [ $? -ne 0 ]; then
@@ -387,7 +391,6 @@ function vrf_configure
 
 	# restart any systemd processes bound to VRF
 	if [ -z "${mode}" ]; then
-		systemd_stop_vrf ${vrf}
 		systemd_start_vrf ${vrf}
 	fi
 
