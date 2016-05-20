@@ -134,11 +134,8 @@ function mgmt_disable
 
 Management VRF is disabled by removing the "iface $MGMT_VRF" stanza from
 /etc/network/interfaces, and then removing "vrf $MGMT_VRF" from the
-interface stanza for eth0. Use 'ifreload -a' to have the new configuration
-take effect.
-
-NOTE: When disabling management VRF any active sessions over the
-      management interface need to be restarted.
+interface stanza for eth0.
+'reboot' to have the new configuration take effect.
 
 This command is deprecated and will be removed in a future release.
 EOF
@@ -166,11 +163,8 @@ And then adding "vrf $MGMT_VRF" to the interface stanza. For example,
     iface eth0 inet dhcp
         vrf $MGMT_VRF
 
-Remember to add "table $MGMT_VRF" to all static routes. Use 'ifreload -a'
-to have the new configuration take effect.
-
-NOTE: When enabling management VRF any active sessions over the
-      management interface need to be restarted.
+Remember to add "table $MGMT_VRF" to all static routes.
+'reboot' to have the new configuration take effect.
 
 This command is deprecated and will be removed in a future release.
 EOF
