@@ -6,11 +6,6 @@ Build-Depends: debhelper (>=9)
 Standards-Version: 3.9.6
 Homepage: http://www.cumulusnetworks.com
 
-Package: cumulus-vrf
-Architecture: all
-Depends: vrf, mgmt-vrf
-Description: Transition package for new names
-
 Package: vrf
 Architecture: all
 Depends: iproute2, cgroup-tools
