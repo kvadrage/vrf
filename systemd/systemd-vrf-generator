@@ -11,11 +11,12 @@ PROG=systemd-vrf-generator
 VRFCONF=/etc/vrf/systemd.conf
 
 # where to find systemd service files
-SYSTEMD_SVC=/lib/systemd/system/
+SYSTEMD_SVC=/lib/systemd/system
 
 # where to write the instance service files created
 # by this generator
-SYSTEMD_ETC=/etc/systemd/system/
+SYSTEMD_ETC=/etc/systemd/system
+SYSTEMD_RUN=/run/systemd/system
 
 VRFGEN_NOTE="created by vrf generator"
 
@@ -57,20 +58,30 @@ create_instance()
 {
 	local dest=${1}
 	local s=${2}
+	local sa=${s//@}
 	local d
+	local force_ifile="no"
 
-        local file=${SYSTEMD_SVC}/${s}.service
-        local ifile=${SYSTEMD_SVC}/${s}@.service
-        local vrffile=${SYSTEMD_ETC}/${s}@.service
-	local vrfunit=${dest}/${s}@.service.d
+	local file=${SYSTEMD_SVC}/${s}.service
+	local ifile=${SYSTEMD_SVC}/${sa}@.service
+	local vrffile=${SYSTEMD_ETC}/${sa}@.service
+	local vrfunit=${dest}/${sa}@.service.d
 
 	# no service file, nothing to do -- maybe the package
 	# has not been installed yet
 	[ ! -e ${file} -a ! -e ${ifile} ] && return
 
+	# some instance files are known not to work with the VRF
+	# use of instance; ignore those and generate a VRF one
+	case ${sa} in
+		ssh) force_ifile="yes"
+		     vrffile=${SYSTEMD_RUN}/${sa}@.service
+		     ;;
+	esac
+
 	# if service brings along its own instance file no
 	# need to create one
-	if [ -e ${ifile} ]; then
+	if [ -e ${ifile} -a ${force_ifile} != "yes" ]; then
 		file=${ifile}
 	else
 		echo "# ${VRFGEN_NOTE}" > ${vrffile}
@@ -87,6 +98,7 @@ create_instance()
 	echo "# ${VRFGEN_NOTE}"
 	echo "[Unit]"
 	echo "SourcePath=${file}"
+	echo "After=network-online.target networking.service"
 	echo
 	echo "[Service]"
 	while read line; do

@@ -40,4 +40,6 @@ done
 
 #DEBHELPER#
 
+/bin/systemctl daemon-reload
+
 exit 0
