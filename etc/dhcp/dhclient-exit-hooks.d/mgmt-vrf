@@ -39,6 +39,10 @@ case "$reason" in
 			    ip -4 route add table ${MGMT_TABLE} ${router} dev $interface >/dev/null 2>&1
 			fi
 
+			# remove old default route should it remain from dhclient-script
+			ip -4 route del default via ${router} dev ${interface} \
+			    ${if_metric:+metric $if_metric} >/dev/null 2>&1
+
 			# set default route
 			ip -4 route add table ${MGMT_TABLE} default via ${router} dev ${interface} \
 			    ${if_metric:+metric $if_metric} >/dev/null 2>&1
