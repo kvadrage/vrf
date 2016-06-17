@@ -22,7 +22,6 @@ VRFGEN_NOTE="created by vrf generator"
 
 do_cleanup()
 {
-	local dest=${1}
 	local file
 
 	grep -d skip -l "${VRFGEN_NOTE}" ${SYSTEMD_ETC}/*.service | \
@@ -31,7 +30,7 @@ do_cleanup()
 		/bin/rm -f ${file}
 	done
 
-	grep -r -l "${VRFGEN_NOTE}" ${dest} | \
+	grep -r -l "${VRFGEN_NOTE}" ${DEST} | \
 	while read file
 	do
 		/bin/rm -f ${file}
@@ -54,10 +53,37 @@ directive_seen()
 	return 1
 }
 
+create_instance_sysv()
+{
+	local file=${1}
+	local ifile=${2}
+
+	(
+	echo "# ${VRFGEN_NOTE}"
+	while read line; do
+		if [[ $line =~ ("Exec".*=[[:space:]]*[^/]*)(\/.*) ]]; then
+			# use full match here to keep all context
+			echo "${BASH_REMATCH[1]}/usr/bin/vrf task exec %I ${BASH_REMATCH[2]}"
+		else
+			echo "$line"
+			if [ "$line" = "[Service]" ]; then
+				echo "Environment=_SYSTEMCTL_SKIP_REDIRECT=true"
+			fi
+		fi
+	done < ${file}
+
+	grep -q "WantedBy=" ${file}
+	if [ $? -ne 0 ]; then
+		echo
+		echo "[Install]"
+		echo "WantedBy=multi-user.target"
+	fi
+	) > ${ifile}
+}
+
 create_instance()
 {
-	local dest=${1}
-	local s=${2}
+	local s=${1}
 	local sa=${s//@}
 	local d
 	local force_ifile="no"
@@ -65,11 +91,30 @@ create_instance()
 	local file=${SYSTEMD_SVC}/${s}.service
 	local ifile=${SYSTEMD_SVC}/${sa}@.service
 	local vrffile=${SYSTEMD_ETC}/${sa}@.service
-	local vrfunit=${dest}/${sa}@.service.d
+	local vrfunit=${DEST}/${sa}@.service.d
 
 	# no service file, nothing to do -- maybe the package
 	# has not been installed yet
-	[ ! -e ${file} -a ! -e ${ifile} ] && return
+	if [ ! -e ${file} -a ! -e ${ifile} ]; then
+		# service files for sysv init based services are
+		# generated and put in late-dir
+		if [ -e ${LATE_DEST}/${s}.service ]; then
+			file=${LATE_DEST}/${s}.service
+		else
+			return
+		fi
+	fi
+
+	# reset exec directives seen; those are per service file
+	EXEC_DIR=
+
+	# sysv init scripts converted to systemd services need
+	# special handling
+	grep -q "systemd-sysv-generator" ${file}
+	if [ $? -eq 0 ]; then
+		create_instance_sysv ${file} ${vrffile}
+		return
+	fi
 
 	# some instance files are known not to work with the VRF
 	# use of instance; ignore those and generate a VRF one
@@ -120,10 +165,12 @@ create_instance()
 }
 
 # take the normal-dir for writing our temp files
-dest=${1}
+DEST=${1}
+EARLY_DEST=${2}
+LATE_DEST=${3}
 
 # remove old files
-do_cleanup ${1}
+do_cleanup
 
 [ ! -e ${VRFCONF} ] && exit 0
 
@@ -132,7 +179,7 @@ do
 	# skip comments and blank lines
 	[ -z "${service}" -o "${service:0:1}" = "#" ] && continue
 
-	create_instance ${dest} ${service}
+	create_instance ${service}
 done < ${VRFCONF}
 
 exit 0
