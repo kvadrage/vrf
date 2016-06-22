@@ -274,6 +274,8 @@ function vrf_add_rules
 	local vrf=$1
 	local tbid=$2
 
+	[ ${HAVE_L3MDEV_RULE} = "yes" ] && return 0
+
 	# setup fib rules which direct lookups to the proper table
 	ip ru add pref 200 oif ${vrf} table ${tbid} || return 1
 	ip ru add pref 200 iif ${vrf} table ${tbid} || return 1
@@ -286,6 +288,8 @@ function vrf_add_rules
 function vrf_delete_rules
 {
 	local vrf=$1
+
+	[ ${HAVE_L3MDEV_RULE} = "yes" ] && return 0
 
 	ip ru delete oif ${vrf}
 	ip ru delete iif ${vrf}
@@ -1058,6 +1062,8 @@ function verify_vrf_fib_rules
 	local tbid=$2
 	local rc=0
 
+	[ ${HAVE_L3MDEV_RULE} = "yes" ] && return 0
+
 	ip_ru_verify $vrf $tbid ${IPRUFILE} "4"
 	[ $? -ne 0 ] && rc=1
 	ip_ru_verify $vrf $tbid ${IP6RUFILE} "6"
@@ -1095,7 +1101,7 @@ function verify_vrf_one
 		return 1
 	fi
 
-	if [ -z ${IPRUFILE} ]; then
+	if [ -z ${IPRUFILE} -a "${HAVE_L3MDEV_RULE}" != "yes" ]; then
 		IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
 		IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
 		ip ru ls >> ${IPRUFILE}
@@ -1149,6 +1155,18 @@ function verify_vrf_all
 	verify_local_table
 	[ $? -ne 0 ] && rc=1
 
+	if [ ${HAVE_L3MDEV_RULE} = "yes" ]; then
+		echo
+		echo "Checking l3mdev-table rules"
+		ip -6 ru ls | egrep -q 'from all lookup \[l3mdev-table\]'
+		if [ $? -ne 0 ]; then
+			echo "    ERROR: IPv6 FIB rule for l3mdev-table is missing."
+			rc=1
+		else
+			echo "    FIB rules are ok."
+		fi
+	fi
+
 	#
 	# look for stale rules without a VRF
 	#
@@ -1182,8 +1200,11 @@ function verify_cmd
 	IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
 	IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
 
-	ip ru ls >> ${IPRUFILE}
-	ip -6 ru ls >> ${IP6RUFILE}
+	if [ "${HAVE_L3MDEV_RULE}" != "yes" ]; then
+		ip ru ls >> ${IPRUFILE}
+		ip -6 ru ls >> ${IP6RUFILE}
+	fi
+
 	if [ -n "$vrf" ]; then
 		local check_table="yes"
 
@@ -1228,6 +1249,14 @@ EOF
 if [ "$1" = "-v" ]; then
 	VERBOSE=1
 	shift
+fi
+
+# Does this kernel have the l3mdev rule?
+ip ru ls | egrep -q 'from all lookup \[l3mdev-table\]'
+if [ $? -eq 0 ]; then
+	HAVE_L3MDEV_RULE=yes
+else
+	HAVE_L3MDEV_RULE=no
 fi
 
 CMD=$1
