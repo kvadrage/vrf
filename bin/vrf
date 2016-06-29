@@ -155,6 +155,15 @@ function vrf_get_cgroup
 	local p=$1
 	local c
 
+	if [ ! -e /proc/$p/cgroup ]; then
+		if [ ! -e /proc/$p ]; then
+			echo "Process does not exist."
+		else
+			echo "cgroup entry does not exist for process."
+		fi
+		return 1
+	fi
+
 	c=$(grep l3mdev /proc/$p/cgroup | awk -F':' '{print $NF}')
 	# strip leading '/'; makes default VRF ""
 	echo ${c/\/}
@@ -177,8 +186,18 @@ function vrf_configure_cgroup
 
 function vrf_delete_cgroup
 {
+	[ ! -e /sys/fs/cgroup/l3mdev/${1} ] && return 0
+
 	log_cmd "cgdelete -g l3mdev:/${1}"
-	cgdelete -g l3mdev:/${1}
+
+	# handle transient EBUSY error by trying again
+	for n in $(seq 1 5); do
+		cgdelete -g l3mdev:/${1}
+		[ $? -eq 0 ] && return 0
+		sleep 1
+	done
+
+	return 1
 }
 
 ################################################################################
@@ -197,16 +216,17 @@ function systemd_start_vrf
 	done
 }
 
+# Do not call during boot
 function systemd_stop_vrf
 {
 	local vrf=${1}
 
-	systemctl --no-block list-units  *.service | \
+	systemctl list-units  *.service | \
 	    awk '$1 ~ /@.*.service$/ {print $1}' | \
 	    grep "@${vrf}" | \
 	while read s
 	do
-		systemctl --no-block stop ${s}
+		systemctl stop ${s}
 	done
 }
 
@@ -254,6 +274,8 @@ function vrf_add_rules
 	local vrf=$1
 	local tbid=$2
 
+	[ ${HAVE_L3MDEV_RULE} = "yes" ] && return 0
+
 	# setup fib rules which direct lookups to the proper table
 	ip ru add pref 200 oif ${vrf} table ${tbid} || return 1
 	ip ru add pref 200 iif ${vrf} table ${tbid} || return 1
@@ -267,12 +289,25 @@ function vrf_delete_rules
 {
 	local vrf=$1
 
+	[ ${HAVE_L3MDEV_RULE} = "yes" ] && return 0
+
 	ip ru delete oif ${vrf}
 	ip ru delete iif ${vrf}
 	ip -6 ru delete oif ${vrf}
 	ip -6 ru delete iif ${vrf}
 
 	return 0
+}
+
+function check_l3mdev_rule
+{
+	# Does this kernel have the l3mdev rule?
+	ip ru ls 2>/dev/null | egrep -q 'from all lookup \[l3mdev-table\]'
+	if [ $? -eq 0 ]; then
+		HAVE_L3MDEV_RULE=yes
+	else
+		HAVE_L3MDEV_RULE=no
+	fi
 }
 
 # setup default route for vrf - use a very poor metric so other
@@ -352,7 +387,10 @@ function vrf_configure
 	[ $? -eq 0 ] && return 0
 
 	# make sure old remnants of prior vrf are removed
-	vrf_teardown ${vrf} ${tbid} 2>/dev/null
+	# no need if this boot up
+	if [ -z "${mode}" ]; then
+		vrf_teardown ${vrf} ${tbid} 2>/dev/null
+	fi
 
 	vrf_add_default_route ${tbid}
 	if [ $? -ne 0 ]; then
@@ -368,7 +406,6 @@ function vrf_configure
 
 	# restart any systemd processes bound to VRF
 	if [ -z "${mode}" ]; then
-		systemd_stop_vrf ${vrf}
 		systemd_start_vrf ${vrf}
 	fi
 
@@ -391,6 +428,12 @@ function vrf_teardown
 	fi
 
 	vrf_delete_cgroup ${vrf}
+	if [ $? -ne 0 ]; then
+		echo "Failed to delete cgroup for vrf ${vrf}"
+		return 1
+	fi
+
+	return 0
 }
 
 function vrf_list
@@ -452,6 +495,9 @@ function vrf_add
 
 	# create device
 	ip link add ${vrf} type vrf table ${tbid}
+
+	# l3mdev rule is added on first dev create
+	check_l3mdev_rule
 
 	# echo "${tbid}  ${vrf}" > /etc/iproute2/rt_tables.d/${vrf}.conf
 
@@ -786,6 +832,11 @@ function task_identify
 	[ -z "$pid" ] && pid=$PPID
 
 	c=$(vrf_get_cgroup $pid)
+	if [ $? -ne 0 ]; then
+		echo "$c"
+		return 1
+	fi
+
 	if [ -n "$c" ]; then
 		if [ $do_prompt = "1" ]; then
 			c=$(normalize_vrf_name $c)
@@ -1025,6 +1076,8 @@ function verify_vrf_fib_rules
 	local tbid=$2
 	local rc=0
 
+	[ ${HAVE_L3MDEV_RULE} = "yes" ] && return 0
+
 	ip_ru_verify $vrf $tbid ${IPRUFILE} "4"
 	[ $? -ne 0 ] && rc=1
 	ip_ru_verify $vrf $tbid ${IP6RUFILE} "6"
@@ -1062,7 +1115,7 @@ function verify_vrf_one
 		return 1
 	fi
 
-	if [ -z ${IPRUFILE} ]; then
+	if [ -z ${IPRUFILE} -a "${HAVE_L3MDEV_RULE}" != "yes" ]; then
 		IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
 		IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
 		ip ru ls >> ${IPRUFILE}
@@ -1116,6 +1169,18 @@ function verify_vrf_all
 	verify_local_table
 	[ $? -ne 0 ] && rc=1
 
+	if [ ${HAVE_L3MDEV_RULE} = "yes" ]; then
+		echo
+		echo "Checking l3mdev-table rules"
+		ip -6 ru ls | egrep -q 'from all lookup \[l3mdev-table\]'
+		if [ $? -ne 0 ]; then
+			echo "    ERROR: IPv6 FIB rule for l3mdev-table is missing."
+			rc=1
+		else
+			echo "    FIB rules are ok."
+		fi
+	fi
+
 	#
 	# look for stale rules without a VRF
 	#
@@ -1149,8 +1214,11 @@ function verify_cmd
 	IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
 	IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
 
-	ip ru ls >> ${IPRUFILE}
-	ip -6 ru ls >> ${IP6RUFILE}
+	if [ "${HAVE_L3MDEV_RULE}" != "yes" ]; then
+		ip ru ls >> ${IPRUFILE}
+		ip -6 ru ls >> ${IP6RUFILE}
+	fi
+
 	if [ -n "$vrf" ]; then
 		local check_table="yes"
 
@@ -1196,6 +1264,8 @@ if [ "$1" = "-v" ]; then
 	VERBOSE=1
 	shift
 fi
+
+check_l3mdev_rule
 
 CMD=$1
 shift

@@ -134,8 +134,14 @@ function mgmt_disable
 
 Management VRF is disabled by removing the "iface $MGMT_VRF" stanza from
 /etc/network/interfaces, and then removing "vrf $MGMT_VRF" from the
-interface stanza for eth0.
-'reboot' to have the new configuration take effect.
+interface stanza for eth0. 'reboot' to have the new configuration take
+effect.
+
+Once Management VRF is disabled ntpd needs to be moved:
+    systemctl stop ntp@mgmt
+    systemctl disable ntp@mgmt
+    systemctl enable ntp
+    systemctl start ntp
 
 This command is deprecated and will be removed in a future release.
 EOF
@@ -165,6 +171,12 @@ And then adding "vrf $MGMT_VRF" to the interface stanza. For example,
 
 Remember to add "table $MGMT_VRF" to all static routes.
 'reboot' to have the new configuration take effect.
+
+Once Management VRF is active ntpd needs to be moved to it:
+    systemctl stop ntp
+    systemctl disable ntp
+    systemctl enable ntp@mgmt
+    systemctl start ntp@mgmt
 
 This command is deprecated and will be removed in a future release.
 EOF
