@@ -1,3 +1,10 @@
+vrf (1.0-cl3u3.1) UNRELEASED; urgency=medium
+
+  * Non-maintainer upload.
+  * debian/changelog
+
+ -- Cumulus Networks <dsa@kenny.cumulusnetworks.com>  Wed, 29 Jun 2016 16:33:20 -0700
+
 vrf (1.0-cl3u3) RELEASED; urgency=medium
 
   * Closes CM-11597: ntp does not auto start after reboot although ntp@mgmt
@@ -7,6 +14,8 @@ vrf (1.0-cl3u3) RELEASED; urgency=medium
   * Closes CM-11286: ssh does not start when ListenAddress flag is set in
                      sshd_config and VRF configured
   * New.Enabled: Support for sysv init-based programs running in a vrf context
+
+ -- Cumulus Networks <dev-support@cumulusnetworks.com>  Wed, 29 Jun 2016 17:29:48 -0700
 
 vrf (1.0-cl3u2) RELEASED; urgency=medium
 
