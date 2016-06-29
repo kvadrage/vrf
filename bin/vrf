@@ -299,6 +299,17 @@ function vrf_delete_rules
 	return 0
 }
 
+function check_l3mdev_rule
+{
+	# Does this kernel have the l3mdev rule?
+	ip ru ls 2>/dev/null | egrep -q 'from all lookup \[l3mdev-table\]'
+	if [ $? -eq 0 ]; then
+		HAVE_L3MDEV_RULE=yes
+	else
+		HAVE_L3MDEV_RULE=no
+	fi
+}
+
 # setup default route for vrf - use a very poor metric so other
 # default routes will take precedence. We need a default route
 # to keep the lookups from dropping from one table to the next
@@ -484,6 +495,9 @@ function vrf_add
 
 	# create device
 	ip link add ${vrf} type vrf table ${tbid}
+
+	# l3mdev rule is added on first dev create
+	check_l3mdev_rule
 
 	# echo "${tbid}  ${vrf}" > /etc/iproute2/rt_tables.d/${vrf}.conf
 
@@ -1251,13 +1265,7 @@ if [ "$1" = "-v" ]; then
 	shift
 fi
 
-# Does this kernel have the l3mdev rule?
-ip ru ls | egrep -q 'from all lookup \[l3mdev-table\]'
-if [ $? -eq 0 ]; then
-	HAVE_L3MDEV_RULE=yes
-else
-	HAVE_L3MDEV_RULE=no
-fi
+check_l3mdev_rule
 
 CMD=$1
 shift
