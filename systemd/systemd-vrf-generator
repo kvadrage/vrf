@@ -81,6 +81,92 @@ create_instance_sysv()
 	) > ${ifile}
 }
 
+# Admins can create unit override files. Those files should exist for
+# instance services as well. Additionally, if those files contain Exec
+# lines then the commands need to be prefaced with vrf exec
+handle_overrides()
+{
+	local s=$1
+	local sa=$2
+	local ord=${SYSTEMD_ETC}/${s}.service.d
+	local iord=${DEST}/${sa}@.service.d
+	local f
+	local line
+
+	[ ! -e ${ord} ] && return 0
+
+	mkdir -p ${iord}
+
+	ls -C1 ${ord}/*.conf 2>/dev/null |
+	while read f
+	do
+		(
+		echo "# ${VRFGEN_NOTE}"
+
+		while read line; do
+			if [[ $line =~ ("Exec".*=[[:space:]]*[^/]*)(\/.*) ]]; then
+				[ -z "${BASH_REMATCH[2]}" ] && continue
+				# use full match here to keep all context
+				echo "${BASH_REMATCH[1]}/usr/bin/vrf task exec %I ${BASH_REMATCH[2]}"
+			else
+				echo "${line}"
+			fi
+		done < ${f}
+		) > ${iord}/${f##*/}
+	done
+}
+
+create_vrf_override()
+{
+	local file=$1
+	local ifile=$2
+	local sa=$3
+	local iord=${DEST}/${sa}@.service.d
+	local conffiles
+	local line
+	local d
+
+	# reset exec directives seen; those are per service file
+	EXEC_DIR=
+
+	# for each Exec line in the service handle prepend vrf exec.
+	# Keep the '-' and '@' characters after the '=' if applicable.
+	# Commands must be absolute path which allows parsing on the '/'
+	mkdir -p ${iord}
+	conffiles="$(ls -C1  ${iord}/*.conf)"
+	(
+	echo "# ${VRFGEN_NOTE}"
+	echo "[Unit]"
+	echo "SourcePath=${file}"
+	echo "After=network-online.target networking.service"
+	echo
+	echo "[Service]"
+	while read line; do
+		if [[ $line =~ ("Exec".*=[[:space:]]*[^/]*)(\/.*) ]]; then
+			# directive is the part before the '='
+			set -- ${BASH_REMATCH[1]/=*}
+			d=${1}
+
+			# has this directive been overridden by an existing unit file?
+			if [ -n "${conffiles}" ]; then
+				egrep -q "${d}\W*=\W*$" ${conffiles} 2>/dev/null
+				[ $? -eq 0 ] && continue
+			fi
+
+			# only write reset for directive first time we see it
+			directive_seen ${d}
+			[ $? -eq 1 ] && echo "${d}="
+
+			# use full match here to keep all context
+			echo "${BASH_REMATCH[1]}/usr/bin/vrf task exec %I ${BASH_REMATCH[2]}"
+		fi
+	done < ${ifile}
+
+	) > ${iord}/vrf.conf
+
+	chmod 644 ${iord}/vrf.conf
+}
+
 create_instance()
 {
 	local s=${1}
@@ -104,9 +190,6 @@ create_instance()
 			return
 		fi
 	fi
-
-	# reset exec directives seen; those are per service file
-	EXEC_DIR=
 
 	# sysv init scripts converted to systemd services need
 	# special handling
@@ -135,33 +218,11 @@ create_instance()
 		ifile=${vrffile}
 	fi
 
-	# for each Exec line in the service handle prepend vrf exec.
-	# Keep the '-' and '@' characters after the '=' if applicable.
-	# Commands must be absolute path which allows parsing on the '/'
-	mkdir -p ${vrfunit}
-	(
-	echo "# ${VRFGEN_NOTE}"
-	echo "[Unit]"
-	echo "SourcePath=${file}"
-	echo "After=network-online.target networking.service"
-	echo
-	echo "[Service]"
-	while read line; do
-		if [[ $line =~ ("Exec".*=[[:space:]]*[^/]*)(\/.*) ]]; then
-			# directive is the part before the '='
-			set -- ${BASH_REMATCH[1]/=*}
-			d=${1}
+	# check for existing unit override files
+	handle_overrides ${s} ${sa}
 
-			# only write reset for directive first time we see it
-			directive_seen ${d}
-			[ $? -eq 1 ] && echo "${d}="
-
-			# use full match here to keep all context
-			echo "${BASH_REMATCH[1]}/usr/bin/vrf task exec %I ${BASH_REMATCH[2]}"
-		fi
-	done < ${ifile}
-
-	) > ${vrfunit}/vrf.conf
+	# create vrf base override for instance service
+	create_vrf_override ${file} ${ifile} ${sa}
 }
 
 # take the normal-dir for writing our temp files
