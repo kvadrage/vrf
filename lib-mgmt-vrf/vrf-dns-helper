@@ -86,6 +86,8 @@ function vrf_delete
 	mgmt=$(mgmt-vrf name)
 	[ "$vrf" != "$mgmt" ] && return 0
 
+	[ ! -e /etc/resolv.conf ] && return 0
+
 	# since we are only handling mgmt VRF could delete all rules with
 	# our priority which handles DNS changes between VRF create & delete
 	while read ns ip tmp
@@ -112,6 +114,8 @@ function vrf_create
 	mgmt=$(mgmt-vrf name)
 	[ "$vrf" != "$mgmt" ] && return 0
 
+	[ ! -e /etc/resolv.conf ] && return 0
+
 	while read ns ip tmp
 	do
 		[ "$ns" != "nameserver" ] && continue
@@ -123,6 +127,8 @@ function vrf_verify_one
 {
 	local vrf=$1
 	local tbid=$2
+
+	[ ! -e /etc/resolv.conf ] && return 0
 
 	while read ns ip tmp
 	do
