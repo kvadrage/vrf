@@ -1,3 +1,11 @@
+vrf (1.0-cl3u4) RELEASED; urgency=medium
+
+  * Closes: CM-11754: Add support for zabbix-agent in Management VRF
+  * Closes: CM-12040: Handle non-existent resolv.conf
+  * New.Enabled: Handle existing systemd override files
+
+ -- Cumulus Networks <dev-support@cumulusnetworks.com>  Fri, 29 Jul 2016 08:21:55 -0700
+
 vrf (1.0-cl3u3) RELEASED; urgency=medium
 
   * Closes CM-11597: ntp does not auto start after reboot although ntp@mgmt
