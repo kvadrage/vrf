@@ -13,10 +13,10 @@ function usage
 	cat <<EOF
 
 Management VRF domain:
-    $PROG mgmt enable
-    $PROG mgmt disable
-    $PROG mgmt status
-    $PROG mgmt verify
+    $PROG enable
+    $PROG disable
+    $PROG status
+    $PROG verify
 EOF
 }
 
