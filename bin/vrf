@@ -236,31 +236,73 @@ function systemd_stop_vrf
 function vrf_exists
 {
 	local vrf=${1}
+	local n
 
 	[ "$vrf" = "default" ] && return 0
 
-	ip link show dev ${vrf} type vrf >/dev/null 2>&1
+	# ip link show dev <name> type vrf happily returns 0 even though
+	# <name> is not of type vrf. Hence the wc -l 
+	n=$(ip -br link show dev ${vrf} type vrf 2>/dev/null | wc -l)
+	[ ${n} -eq 1 ] && return 0
+
 	return $?
+}
+
+# get table id for device enslaved to a VRF
+function vrf_get_table_dev
+{
+	local tbid
+
+	# if vrf_slave is not in the output device is not enslaved
+	tbid=$(ip -o -d link show dev ${1} 2>/dev/null |\
+	      egrep ' vrf_slave table [0-9]*' |\
+	      sed -e 's/.*vrf_slave table \([0-9]*\) .*/\1/')
+
+	[ -z "${tbid}" ] && return 1
+
+	echo ${tbid}
+
+	return 0
 }
 
 # get table id for vrf device
 function vrf_get_table
 {
-	ip -o -d link show dev ${1} 2>/dev/null | sed -e 's/.*vrf table \([0-9]*\) .*/\1/'
+	local tbid
+
+	tbid=$(ip -o -d link show dev ${1} 2>/dev/null |\
+	      egrep ' vrf table [0-9]*' |\
+	      sed -e 's/.*vrf table \([0-9]*\) .*/\1/')
+
+	[ -z "${tbid}" ] && return 1
+
+	echo ${tbid}
+
+	return 0
 }
 
 function vrf_table
 {
-	local vrf=$(get_vrf_arg ${1})
+	local tbid
+	local vrf
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
 	vrf_exists $vrf
-	if [ $? -ne 0 ]; then
-		echo "VRF does not exist"
-		return 1
+	if [ $? -eq 0 ]; then
+		vrf_get_table $vrf
+		return 0
 	fi
 
-	vrf_get_table $vrf
+	# maybe this is a device, not a VRF
+	tbid=$(vrf_get_table_dev ${vrf})
+	if [ $? -eq 0 ]; then
+		echo ${tbid}
+		return 0
+	fi
+
+	return 1
 }
 
 # return list of VRFs that have been created
@@ -1290,7 +1332,7 @@ case "$CMD" in
 	li|link)  link_cmd $*;;
 	ro|route) route_cmd $*;;
 
-	# used by mgmt-vrf
+	# used by mgmt-vrf and dhclient exit hook
 	table) vrf_table $*;;
 
 	####################################################

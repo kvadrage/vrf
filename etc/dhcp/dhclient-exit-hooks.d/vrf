@@ -1,8 +1,10 @@
-mgmt-vrf status >/dev/null 2>&1
-[ $? -ne 0 ] && exit 0
+# Routes go to VRF table if interface is enslaved
+TABLE_ID=$(vrf table ${interface})
 
+# DNS lookups go to mgmt VRF table if it is enabled
 MGMT_TABLE=$(mgmt-vrf table)
-[ x"$MGMT_TABLE" = x ] && exit 1
+
+if [ -n "${MGMT_TABLE}" ]; then
 
 # Cleanup DNS state
 if [ -n "$old_domain_name_servers" ]; then
@@ -18,6 +20,10 @@ if [ -n "$new_domain_name_servers" ]; then
         /usr/lib/mgmt-vrf/vrf-dns-helper dns_add ${dns} ${MGMT_TABLE}
     done
 fi
+
+fi
+
+if [ -n "${TABLE_ID}" ]; then
 
 case "$reason" in
     BOUND|RENEW|REBIND|REBOOT)
@@ -36,7 +42,7 @@ case "$reason" in
 		    for router in $new_routers; do
 			if [ "$new_subnet_mask" = "255.255.255.255" ]; then
 			    # point-to-point connection => set explicit route
-			    ip -4 route add table ${MGMT_TABLE} ${router} dev $interface >/dev/null 2>&1
+			    ip -4 route add table ${TABLE_ID} ${router} dev $interface >/dev/null 2>&1
 			fi
 
 			# remove old default route should it remain from dhclient-script
@@ -44,7 +50,7 @@ case "$reason" in
 			    ${if_metric:+metric $if_metric} >/dev/null 2>&1
 
 			# set default route
-			ip -4 route add table ${MGMT_TABLE} default via ${router} dev ${interface} \
+			ip -4 route add table ${TABLE_ID} default via ${router} dev ${interface} \
 			    ${if_metric:+metric $if_metric} >/dev/null 2>&1
 
 			if [ -n "$if_metric" ]; then
@@ -56,13 +62,13 @@ case "$reason" in
 
         if [ -n "$alias_ip_address" ] &&
            [ "$new_ip_address" != "$alias_ip_address" ]; then
-            ip -4 route add table ${MGMT_TABLE} ${alias_ip_address} dev ${interface} >/dev/null 2>&1
+            ip -4 route add table ${TABLE_ID} ${alias_ip_address} dev ${interface} >/dev/null 2>&1
         fi
         ;;
 
     EXPIRE|FAIL|RELEASE|STOP)
         if [ -n "$alias_ip_address" ]; then
-            ip -4 route add table ${MGMT_TABLE} ${alias_ip_address} dev ${interface} >/dev/null 2>&1
+            ip -4 route add table ${TABLE_ID} ${alias_ip_address} dev ${interface} >/dev/null 2>&1
         fi
 
         ;;
@@ -75,12 +81,12 @@ case "$reason" in
 	    if [ ! "$new_rfc3442_classless_static_routes" ]; then
 		    if [ -n "$alias_ip_address" ] &&
 		       [ "$new_ip_address" != "$alias_ip_address" ]; then
-			ip -4 route add table ${MGMT_TABLE} ${alias_ip_address} dev ${interface} >/dev/null 2>&1
+			ip -4 route add table ${TABLE_ID} ${alias_ip_address} dev ${interface} >/dev/null 2>&1
 		    fi
 
 		    # set default route
 		    for router in $new_routers; do
-			ip -4 route add table ${MGMT_TABLE} default via ${router} dev ${interface} \
+			ip -4 route add table ${TABLE_ID} default via ${router} dev ${interface} \
 			    ${if_metric:+metric $if_metric} >/dev/null 2>&1
 
 			if [ -n "$if_metric" ]; then
@@ -92,3 +98,5 @@ case "$reason" in
 
         ;;
 esac
+
+fi
