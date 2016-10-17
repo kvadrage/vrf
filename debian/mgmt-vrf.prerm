@@ -30,10 +30,11 @@ do
 done
 
 f=/usr/share/pam-configs/pam_script
-[ ! -e ${DIVERT_DIR}/${f} ] && continue
-dpkg-divert --remove ${f}
-rm -f ${f}
-mv -f ${DIVERT_DIR}/${f} ${f}
+if [ -e ${DIVERT_DIR}/${f} ]; then
+	dpkg-divert --remove ${f}
+	rm -f ${f}
+	mv -f ${DIVERT_DIR}/${f} ${f}
+fi
 
 pam-auth-update --package
 
