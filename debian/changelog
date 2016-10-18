@@ -1,3 +1,10 @@
+vrf (1.0-cl3u5) RELEASED; urgency=medium
+
+  * Closes: CM-12332: Remove extra mgmt keyword from usage
+  * Closes: CM-12564: dhclient exit hook needs to work for all vrfs
+
+ -- Cumulus Networks <dev-support@cumulusnetworks.com>  Tue, 18 Oct 2016 14:23:58 -0700
+
 vrf (1.0-cl3u4) RELEASED; urgency=medium
 
   * Closes: CM-11754: Add support for zabbix-agent in Management VRF
