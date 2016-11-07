@@ -9,7 +9,7 @@
 
 PROG=${0##*/}
 
-CFGDIR=/var/lib/vrf
+CGRPDIR=/sys/fs/cgroup/l3mdev
 
 VERBOSE=0
 
@@ -124,7 +124,7 @@ function get_tbid_arg
 
 function l3mdev_cgroup_exists
 {
-	if [ -e /sys/fs/cgroup/l3mdev ];
+	if [ -e ${CGRPDIR} ];
 	then
 		return 0
 	fi
@@ -142,7 +142,7 @@ function vrf_cgroup_exists
 {
 	local vrf=$1
 
-	[ -e /sys/fs/cgroup/l3mdev/${vrf} ] && return 0
+	[ -e ${CGRPDIR}/${vrf} ] && return 0
 
 	echo "cgroup does not exist for VRF."
 
@@ -186,13 +186,15 @@ function vrf_configure_cgroup
 
 function vrf_delete_cgroup
 {
-	[ ! -e /sys/fs/cgroup/l3mdev/${1} ] && return 0
+	local vrf=${1}
 
-	log_cmd "cgdelete -g l3mdev:/${1}"
+	[ ! -e ${CGRPDIR}/${vrf} ] && return 0
+
+	log_cmd "cgdelete -g l3mdev:/${vrf}"
 
 	# handle transient EBUSY error by trying again
 	for n in $(seq 1 5); do
-		cgdelete -g l3mdev:/${1}
+		cgdelete -g l3mdev:/${vrf}
 		[ $? -eq 0 ] && return 0
 		sleep 1
 	done
@@ -844,7 +846,7 @@ function task_list_vrf
 	printf "\nVRF: %-16s\n" $vrf
 	echo "-----------------------"
 
-	local f="/sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs"
+	local f="${CGRPDIR}/${vrf}/cgroup.procs"
 	if [ ! -e $f ]; then
 		echo "No cgroup for vrf"
 	else
@@ -945,10 +947,10 @@ function task_set
 	fi
 
 	if [ "$vrf" = "default" ]; then
-		echo $pid >> /sys/fs/cgroup/l3mdev/cgroup.procs
+		echo $pid >> ${CGRPDIR}/cgroup.procs
 	else
 		vrf_cgroup_exists $vrf || return 1
-		echo $pid >> /sys/fs/cgroup/l3mdev/${vrf}/cgroup.procs
+		echo $pid >> ${CGRPDIR}/${vrf}/cgroup.procs
 	fi
 }
 
