@@ -1,3 +1,10 @@
+vrf (1.0-cl3u6) RELEASED; urgency=medium
+
+  * Closes: CM-13526: Add hsflowd to systemd.conf to run VRF instances
+  * Closes: CM-12912: Add netq-agent to systemd.conf to run VRF instances
+
+ -- Cumulus Networks <dev-support@cumulusnetworks.com>  Mon, 28 Nov 2016 09:57:32 -0700
+
 vrf (1.0-cl3u5) RELEASED; urgency=medium
 
   * Closes: CM-12332: Remove extra mgmt keyword from usage
