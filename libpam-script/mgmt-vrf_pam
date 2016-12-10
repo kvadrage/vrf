@@ -16,6 +16,10 @@ if [ $? -eq 0 ]; then
 
 		mgmt-vrf set $PAMSCRIPT_PPID
 	fi
+else
+	# make sure task is set to default context
+	# e.g, changing namespaces and mgmt vrf does not exit is new ns.
+	vrf task set default $PAMSCRIPT_PPID
 fi
 
 exit 0
