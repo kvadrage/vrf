@@ -5,3 +5,4 @@ lib-vrf/*		usr/lib/vrf
 systemd/dns-watcher.service	lib/systemd/system
 systemd/systemd-vrf-generator	lib/systemd/system-generators
 etc/dhcp/dhclient-exit-hooks.d/*        etc/dhcp/dhclient-exit-hooks.d
+ifupdown2/policy.d/vrf.json	var/lib/ifupdown2/policy.d
