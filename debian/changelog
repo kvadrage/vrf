@@ -1,3 +1,9 @@
+vrf (1.1) RELEASED; urgency=medium
+
+  * Updates for upstream
+
+ -- David Ahern <dsa@cumulusnetworks.com>  Sat, 10 Dec 2016 09:05:32 -0700
+
 vrf (1.0-cl3u6) RELEASED; urgency=medium
 
   * Closes: CM-13526: Add hsflowd to systemd.conf to run VRF instances
