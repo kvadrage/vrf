@@ -1,4 +1,3 @@
 bin/mgmt-vrf		usr/bin
 lib-mgmt-vrf/*		usr/lib/mgmt-vrf
 libpam-script		usr/share/mgmt-vrf
-etc/sudoers.d/mgmt-vrf	etc/sudoers.d
