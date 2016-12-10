@@ -98,7 +98,7 @@ function get_vrf_arg
 
 	vrf="${1//[^a-zA-Z0-9_-.]/}"
 	if [ "$vrf" != "$1" ]; then
-		echo "Invalid VRF"
+		echo "Invalid VRF" >&2
 		return 1
 	fi
 
@@ -285,8 +285,8 @@ function vrf_get_table
 
 function vrf_table
 {
-	local tbid
 	local vrf
+	local tbid
 
 	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
@@ -407,10 +407,13 @@ function vrf_verify_default_route
 # Configure a VRF
 function vrf_configure
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+	local tbid
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
-	local tbid=$(get_tbid_arg ${2})
+	tbid=$(get_tbid_arg ${2})
 	[ $? -ne 0 ] && return 1
 
 	local mode=$3
@@ -459,10 +462,13 @@ function vrf_configure
 # Remove all configuration for VRF
 function vrf_teardown
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+	local tbid
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
-	local tbid=$(get_tbid_arg ${2})
+	tbid=$(get_tbid_arg ${2})
 	[ $? -ne 0 ] && return 1
 
 	systemd_stop_vrf ${vrf}
@@ -509,10 +515,13 @@ function vrf_list
 # Unsupported option; for testing and tooling only
 function vrf_add
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+	local tbid
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
-	local tbid=$(get_tbid_arg ${3})
+	tbid=$(get_tbid_arg ${3})
 	[ $? -ne 0 ] && return 1
 
 	if [ "$2" != "table" -o -z "$3" -o -n "$4" ];
@@ -555,10 +564,13 @@ function vrf_add
 # Unsupported option; for testing and tooling only
 function vrf_delete
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+	local tbid
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
-	local tbid=$(get_tbid_arg ${2})
+	tbid=$(get_tbid_arg ${2})
 	[ $? -ne 0 ] && return 1
 
 	if [ -z "$vrf" ];
@@ -631,10 +643,11 @@ function link_list
 
 function link_add
 {
-	local vrf=$(get_vrf_arg ${1})
-	[ $? -ne 0 ] && return 1
-
+	local vrf
 	local dev=${3}
+
+	vrf=$(get_vrf_arg ${1})
+	[ $? -ne 0 ] && return 1
 
 	if [ "$2" != "dev" -o -z "$3" -o -n "$4" ];
 	then
@@ -750,7 +763,9 @@ function route_show
 
 function route_add
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
 	shift
@@ -767,7 +782,9 @@ function route_add
 
 function route_delete
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
 	shift
@@ -784,7 +801,9 @@ function route_delete
 
 function route_get
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
 	shift
@@ -840,7 +859,9 @@ EOF
 
 function task_list_vrf
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
 	printf "\nVRF: %-16s\n" $vrf
@@ -919,11 +940,13 @@ function task_list
 
 function task_set
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+	local pid
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
-	local pid=${2//[^0-9]/}
-
+	pid=${2//[^0-9]/}
 	if [ "$pid" != "$2" ]; then
 		echo "Invalid process id"
 		return 1
@@ -956,7 +979,9 @@ function task_set
 
 function task_exec
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
 	shift
@@ -1249,10 +1274,13 @@ function verify_vrf_all
 
 function verify_cmd
 {
-	local vrf=$(get_vrf_arg ${1})
+	local vrf
+	local tbid
+
+	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
 
-	local tbid=$(get_tbid_arg ${2})
+	tbid=$(get_tbid_arg ${2})
 	[ $? -ne 0 ] && return 1
 
 	IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
