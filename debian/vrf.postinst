@@ -29,7 +29,8 @@ do
 	dpkg-divert --divert ${DIVERT_DIR}/${f} --rename ${f}
 	sed -e 's/^PS1=/#PS1=/' ${DIVERT_DIR}/${f} > ${f}
 	cat >> ${f} <<EOF
-VRF=\$(vrf identify prompt)
+VRF=\$(ip vrf identify)
+[ -n "\${VRF}" ] && VRF=":\${VRF}"
 export VRF
 PS1='\${debian_chroot:+(\$debian_chroot)}\u@\h\${VRF}:\w\\\$ '
 EOF
