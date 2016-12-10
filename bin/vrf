@@ -339,6 +339,11 @@ function vrf_configure
 		return 1
 	fi
 
+	# use ip route to create the cgroup and add bpf program
+	# this can always be done to reload the bpf program to
+	# ensure the right index is used
+	ip vrf exec ${vrf} id >/dev/null 2>&1
+
 	# only rebuild the VRF if it is not configured properly
 	verify_vrf_one ${vrf} ${tbid} "yes" >/dev/null 2>&1
 	[ $? -eq 0 ] && return 0
@@ -354,9 +359,6 @@ function vrf_configure
 		echo "Failed to install default routes"
 		return 1
 	fi
-
-	# use ip route to create the cgroup and add bpf program
-	#ip vrf exec ${vrf} id >/dev/null 2>&1
 
 	# restart any systemd processes bound to VRF
 	if [ -z "${mode}" ]; then
