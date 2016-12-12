@@ -5,6 +5,13 @@ if [ "$PAM_SERVICE" = "sudo" ]; then
 	exit 0
 fi
 
+# allow "sudo ip vrf exec VRF su - USER" to change VRF
+# and allow "sudo ip netns exec foo su - USER" to change
+# namespace and drop the VRF assumption
+
+echo "${SUDO_COMMAND}" | grep -q 'vrf exec '
+[ $? -eq 0 ] && exit 0
+
 mgmt-vrf status >/dev/null 2>&1
 if [ $? -eq 0 ]; then
 	VRF=$(ip vrf identify)
