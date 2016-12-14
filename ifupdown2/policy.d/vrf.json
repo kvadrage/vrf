@@ -4,7 +4,7 @@
                            "vrf-table-id-end" : 1255,
                            "vrf-max-count" : 64,
                            "vrf-mgmt-devname" : "mgmt",
-                           "vrf-exec-cmd-prefix" : "/sbin/ip vrf exec",
+                           "vrf-exec-cmd-prefix" : "/bin/ip vrf exec",
                            "vrf-helper" : "/usr/lib/vrf/vrf-helper",
                            "vrf-close-socks-on-down" : true}
 	}
