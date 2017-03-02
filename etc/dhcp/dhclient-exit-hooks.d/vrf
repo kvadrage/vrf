@@ -1,26 +1,29 @@
 # Routes go to VRF table if interface is enslaved
 TABLE_ID=$(vrf table ${interface})
+if [ -n "${TABLE_ID}" ]; then
+	VRF=$(vrf ls | awk -v table=${TABLE_ID} '$2 == table {print $1}')
+fi
 
-# DNS lookups go to mgmt VRF table if it is enabled
-MGMT_TABLE=$(mgmt-vrf table)
-
-if [ -n "${MGMT_TABLE}" ]; then
+if [ -n "${TABLE_ID}" ]; then
 
 # Cleanup DNS state
 if [ -n "$old_domain_name_servers" ]; then
     # Delete rules associated with old DNS server
     for dns in $old_domain_name_servers; do
-        /usr/lib/mgmt-vrf/vrf-dns-helper dns_del ${dns} ${MGMT_TABLE} 1>/dev/null 2>&1
+        /usr/lib/vrf/vrf-dns-helper dns_del ${dns} ${TABLE_ID} 1>/dev/null 2>&1
     done
+fi
+
 fi
 
 # Add rules to handle DNS server
 if [ -n "$new_domain_name_servers" ]; then
     for dns in $new_domain_name_servers; do
-        /usr/lib/mgmt-vrf/vrf-dns-helper dns_add ${dns} ${MGMT_TABLE}
+	if [ -n "${TABLE_ID}" ]; then
+		/usr/lib/vrf/vrf-dns-helper dns_add ${dns} ${TABLE_ID}
+		sed -i.bak -e "s/nameserver ${dns}.*/nameserver ${dns} vrf ${VRF}/" /etc/resolv.conf
+	fi
     done
-fi
-
 fi
 
 if [ -n "${TABLE_ID}" ]; then
