@@ -54,7 +54,7 @@ static struct nl_sock *sk;
 static uint32_t prio = 99;
 
 static const char *prog;
-static int verbose = 1;
+static int verbose;
 
 static int get_vrf_table(const char *vrf, uint32_t *table)
 {
