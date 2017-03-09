@@ -21,7 +21,7 @@ if [ -n "$new_domain_name_servers" ]; then
     for dns in $new_domain_name_servers; do
 	if [ -n "${TABLE_ID}" ]; then
 		/usr/lib/vrf/vrf-dns-helper dns_add ${dns} ${TABLE_ID}
-		sed -i.bak -e "s/nameserver ${dns}.*/nameserver ${dns} vrf ${VRF}/" /etc/resolv.conf
+		sed -i.bak -e "s/nameserver ${dns}.*/nameserver ${dns} # vrf ${VRF}/" /etc/resolv.conf
 	fi
     done
 fi

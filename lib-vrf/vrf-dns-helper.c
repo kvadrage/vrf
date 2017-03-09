@@ -249,7 +249,7 @@ static int process_dns_config(const char *vrf, uint32_t table)
 	while (fgets(buf, sizeof(buf), fp)) {
 		char addr[32], ns_vrf[32];
 
-		if (sscanf(buf, "nameserver %31s vrf %31s", addr, ns_vrf) != 2)
+		if (sscanf(buf, "nameserver %31s # vrf %31s", addr, ns_vrf) != 2)
 			continue;
 
 		if (strcmp(vrf, ns_vrf))
@@ -368,7 +368,7 @@ static int verify_dns_config(const char *vrf, uint32_t table)
 		struct rtnl_rule *rule;
 		struct nl_addr *addr;
 
-		if (sscanf(buf, "nameserver %31s vrf %31s", dns, ns_vrf) != 2)
+		if (sscanf(buf, "nameserver %31s # vrf %31s", dns, ns_vrf) != 2)
 			continue;
 
 		if (strcmp(vrf, ns_vrf))
