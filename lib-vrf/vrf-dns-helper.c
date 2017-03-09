@@ -193,38 +193,24 @@ out:
 
 static int dns_add(int argc, char *argv[])
 {
-	const char *vrf;
+	const char *dns;
 	uint32_t table;
 	int err;
 
-	if (argc < 2) {
+	if (argc != 3) {
 		fprintf(stderr, "Invalid args for dns_add\n");
 		return -EINVAL;
 	}
 
-	vrf = argv[1];
+	dns = argv[1];
 
-	err = get_vrf_table(vrf, &table);
-	if (err != 0)
-		return err;
-
-	if (argc > 2) {
-		const char *tablestr = argv[2];
-		uint32_t table2;
-
-		table2 = (uint32_t) atoi(tablestr);
-		if (!table2) {
-			fprintf(stderr, "Invalid table id\n");
-			return -EINVAL;
-		}
-
-		if (table != table2) {
-			fprintf(stderr, "Table id mismatch with VRF device\n");
-			return -EINVAL;
-		}
+	table = (uint32_t) atoi(argv[2]);
+	if (!table) {
+		fprintf(stderr, "Invalid table id\n");
+		return -1;
 	}
 
-	return config_dns_server(vrf, table);
+	return config_dns_server(dns, table);
 }
 
 static int dns_del(int argc, char *argv[])
