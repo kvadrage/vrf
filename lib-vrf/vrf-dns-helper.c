@@ -55,6 +55,22 @@ static uint32_t prio = 99;
 static const char *prog;
 static int verbose;
 
+static int str_to_uint(const char *str, uint32_t *val)
+{
+	unsigned int n;
+	char *end;
+
+	errno = 0;
+	n = (unsigned int) strtoul(str, &end, 0);
+	if (((*end == '\0') || (*end == '\n')) && (end != str) &&
+	     (errno != ERANGE)) {
+		*val = n;
+		return 0;
+	}
+
+	return -1;
+}
+
 static int get_vrf_table(const char *vrf, uint32_t *table)
 {
 	struct rtnl_link *link;
@@ -202,10 +218,15 @@ static int dns_add(int argc, char *argv[])
 
 	dns = argv[1];
 
-	table = (uint32_t) atoi(argv[2]);
-	if (!table) {
-		fprintf(stderr, "Invalid table id\n");
-		return -1;
+	/* is the vrf arg a name or a table? */
+	if (isdigit(*argv[2])) {
+		if (str_to_uint(argv[2], &table) != 0) {
+			fprintf(stderr, "Invalid vrf/table id\n");
+			return -1;
+		}
+	} else if (get_vrf_table(argv[2], &table) < 0) {
+		/* vrf device does not exist yet - nothing to do */
+		return 0;
 	}
 
 	return config_dns_server(dns, table);
@@ -220,10 +241,15 @@ static int dns_del(int argc, char *argv[])
 		return -1;
 	}
 
-	table = (uint32_t) atoi(argv[2]);
-	if (!table) {
-		fprintf(stderr, "Invalid table id\n");
-		return -1;
+	/* is the vrf arg a name or a table? */
+	if (isdigit(*argv[2])) {
+		if (str_to_uint(argv[2], &table) != 0) {
+			fprintf(stderr, "Invalid vrf/table id\n");
+			return -1;
+		}
+	} else if (get_vrf_table(argv[2], &table) < 0) {
+		/* vrf device does not exist - nothing to do */
+		return 0;
 	}
 
 	return remove_dns_server(argv[1], table);
