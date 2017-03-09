@@ -45,7 +45,6 @@
 	}
 
 static struct nl_cache *rule_cache;
-static struct nl_cache *link_cache;
 static struct nl_sock *sk;
 
 /* priority of FIB rules. Needs to be before (lower prio)
@@ -59,14 +58,14 @@ static int verbose;
 static int get_vrf_table(const char *vrf, uint32_t *table)
 {
 	struct rtnl_link *link;
-	int rc = 0;
+	int rc = -EINVAL;
 
-	link = rtnl_link_get_by_name(link_cache, vrf);
-	if (!link ||
-	    !rtnl_link_is_vrf(link) ||
-	    rtnl_link_vrf_get_tableid(link, table) < 0) {
-		fprintf(stderr, "Invalid VRF\n");
-		rc = -EINVAL;
+	if (rtnl_link_get_kernel(sk, 0, vrf, &link) != 0)
+		return -EINVAL;
+
+	if (link && rtnl_link_is_vrf(link) &&
+	    rtnl_link_vrf_get_tableid(link, table) == 0) {
+		rc = 0;
 	}
 
 	if (link)
@@ -195,7 +194,6 @@ static int dns_add(int argc, char *argv[])
 {
 	const char *dns;
 	uint32_t table;
-	int err;
 
 	if (argc != 3) {
 		fprintf(stderr, "Invalid args for dns_add\n");
@@ -400,7 +398,6 @@ static int verify_dns_config(const char *vrf, uint32_t table)
 
 static int vrf_dns_config_verify(int argc, char *argv[])
 {
-	struct rtnl_link *link;
 	const char *vrf;
 	uint32_t table;
 	int err = 1;
@@ -412,18 +409,10 @@ static int vrf_dns_config_verify(int argc, char *argv[])
 
 	vrf = argv[1];
 
-	link = rtnl_link_get_by_name(link_cache, vrf);
-	if (!link ||
-	    !rtnl_link_is_vrf(link) ||
-	    rtnl_link_vrf_get_tableid(link, &table) < 0) {
+	if (get_vrf_table(vrf, &table) != 0)
 		fprintf(stderr, "Invalid VRF\n");
-		goto out;
-	}
-
-	err = verify_dns_config(vrf, table);
-out:
-	if (link)
-		rtnl_link_put(link);
+	else
+		err = verify_dns_config(vrf, table);
 
 	return err;
 }
@@ -472,11 +461,6 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 
-	if (rtnl_link_alloc_cache(sk, AF_UNSPEC, &link_cache) < 0) {
-		fprintf(stderr, "Failed to populate link cache\n");
-		goto out;
-	}
-
 	for (i = 0; i < ARRAY_SIZE(actions); ++i) {
 		if (!strcmp(action, actions[i].name)) {
 			rc = actions[i].fn(argc, argv);
@@ -487,9 +471,6 @@ int main(int argc, char *argv[])
 out:
 	if (rule_cache)
 		nl_cache_free(rule_cache);
-
-	if (link_cache)
-		nl_cache_free(link_cache);
 
 	nl_socket_free(sk);
 
