@@ -426,21 +426,33 @@ static int vrf_dns_config_verify(int argc, char *argv[])
 {
 	const char *vrf;
 	uint32_t table;
-	int err = 1;
 
-	if (argc != 2) {
+	if (argc < 2) {
 		fprintf(stderr, "Invalid args for verify\n");
 		return -1;
 	}
 
 	vrf = argv[1];
 
-	if (get_vrf_table(vrf, &table) != 0)
+	if (get_vrf_table(vrf, &table) != 0) {
 		fprintf(stderr, "Invalid VRF\n");
-	else
-		err = verify_dns_config(vrf, table);
+		return 1;
+	}
+	if (argc > 2) {
+		uint32_t table2;
 
-	return err;
+		if (str_to_uint(argv[2], &table2) != 0) {
+			fprintf(stderr, "Invalid table id\n");
+			return 1;
+		}
+
+		if (table != table2) {
+			fprintf(stderr, " Table id mismatch\n");
+			return 1;
+		}
+	}
+
+	return verify_dns_config(vrf, table);
 }
 
 int main(int argc, char *argv[])
