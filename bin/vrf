@@ -120,9 +120,10 @@ function systemd_start_vrf
 {
 	local vrf=${1}
 
-	systemctl --no-block list-units  *.service | \
-	    awk '$1 ~ /@.*.service$/ {print $1}' | \
-	    grep "@${vrf}" | \
+	# start services that have been enabled in a VRF. skip services in
+	# failed state (can lead to cl-support trying to restart them)
+	systemctl -t service --state=active,inactive list-units *@${vrf}.service |\
+	    awk '$1 ~ /.service$/ && $2 == "loaded" {print $1}' | \
 	while read s
 	do
 		systemctl --no-block start ${s}
@@ -134,9 +135,9 @@ function systemd_stop_vrf
 {
 	local vrf=${1}
 
-	systemctl list-units  *.service | \
-	    awk '$1 ~ /@.*.service$/ {print $1}' | \
-	    grep "@${vrf}" | \
+	# stop active services running in the vrf
+	systemctl -t service --state=active list-units *@${vrf}.service |\
+	    awk '$1 ~ /.service$/ && $2 == "loaded" {print $1}' | \
 	while read s
 	do
 		systemctl stop ${s}
