@@ -19,6 +19,8 @@ RT_METRIC=8192
 TBID_MIN=1001
 TBID_MAX=1255
 
+MISSING_IPV6_DEF_RT=6
+
 ################################################################################
 # utilities
 
@@ -269,15 +271,28 @@ function check_l3mdev_rule
 # setup default route for vrf - use a very poor metric so other
 # default routes will take precedence. We need a default route
 # to keep the lookups from dropping from one table to the next
-function vrf_add_default_route
+function vrf_add_default_route_v4
 {
 	local tbid=$1
 
 	log_cmd "ip route add table ${tbid} unreachable default metric $RT_METRIC"
 	ip route add table ${tbid} unreachable default metric $RT_METRIC || return 1
+}
+
+function vrf_add_default_route_v6
+{
+	local tbid=$1
 
 	log_cmd "ip -6 route add table ${tbid} unreachable default metric $RT_METRIC"
 	ip -6 route add table ${tbid} unreachable default metric $RT_METRIC || return 1
+}
+
+function vrf_add_default_route
+{
+	local tbid=$1
+
+	vrf_add_default_route_v4 ${tbid}
+	vrf_add_default_route_v6 ${tbid}
 }
 
 function vrf_remove_default_route
@@ -306,7 +321,7 @@ function vrf_verify_default_route
 	ip -6 route ls table ${tbid} | grep -q "unreachable default "
 	if [ $? -ne 0 ]; then
 		echo "    ERROR: IPv6 default route missing"
-		rc=1
+		rc=${MISSING_IPV6_DEF_RT}
 	fi
 
 	if [ $rc -eq 0 ]; then
@@ -322,6 +337,7 @@ function vrf_configure
 	local vrf
 	local tbid
 	local mode=$3
+	local rc
 
 	vrf=$(get_vrf_arg ${1})
 	[ $? -ne 0 ] && return 1
@@ -347,7 +363,18 @@ function vrf_configure
 
 	# only rebuild the VRF if it is not configured properly
 	verify_vrf_one ${vrf} ${tbid} "yes" >/dev/null 2>&1
-	[ $? -eq 0 ] && return 0
+	rc=$?
+	[ ${rc} -eq 0 ] && return 0
+
+	# special case rebuilds - ifdown can take down the 'lo'
+	# device which removes the default route in the IPv6 table
+	# rather than rebuild the VRF for an easy fix, just replace
+	# the default route. For any other errors, the VRF is
+	# rebuilt
+	if [ ${rc} -eq ${MISSING_IPV6_DEF_RT} ]; then
+		vrf_add_default_route_v6 ${tbid}
+		[ $? -eq 0 ] && return 0
+	fi
 
 	# make sure old remnants of prior vrf are removed
 	# no need if this boot up
@@ -821,6 +848,7 @@ function verify_vrf_one
 	local table_check=$3
 	local rc=0
 	local rm_files=no
+	local tmp_rc
 
 	if [ "$table_check" = "yes" ]; then
 		local tbid_chk=$(vrf_get_table $vrf)
@@ -841,7 +869,7 @@ function verify_vrf_one
 		return 1
 	fi
 
-	if [ -z ${IPRUFILE} -a "${HAVE_L3MDEV_RULE}" != "yes" ]; then
+	if [ -z "${IPRUFILE}" -a "${HAVE_L3MDEV_RULE}" != "yes" ]; then
 		IPRUFILE=$(mktemp /tmp/vrf-ip.XXXXXXXX)
 		IP6RUFILE=$(mktemp /tmp/vrf-ip6.XXXXXXXX)
 		ip ru ls >> ${IPRUFILE}
@@ -849,8 +877,11 @@ function verify_vrf_one
 		rm_files=yes
 	fi
 
+	# keep rc and pass back to caller; used to catch missing
+	# ipv6 default route
 	vrf_verify_default_route $tbid
-	[ $? -ne 0 ] && rc=1
+	tmp_rc=$?
+	[ ${tmp_rc} -ne 0 ] && rc=${tmp_rc}
 
 	verify_vrf_fib_rules $vrf $tbid
 	[ $? -ne 0 ] && rc=1
