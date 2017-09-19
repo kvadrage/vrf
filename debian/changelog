@@ -1,3 +1,12 @@
+vrf (1.2) RELEASED; urgency=medium
+
+  * Correctly match Exec lines - from Benoît Knecht
+  * New.Enabled: Support for building rpms
+  * New.Enabled: deb package target
+  * Closes: CM-16862: Use %i for instance names
+
+ -- David Ahern <dsa@cumulusnetworks.com>  Wed, 31 Jan 2018 09:17:02 -0700
+
 vrf (1.1) RELEASED; urgency=medium
 
   * Updates for upstream
