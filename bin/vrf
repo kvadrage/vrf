@@ -13,7 +13,7 @@ VERBOSE=0
 # metric for unreachable default routes added to each vrf table
 # - static routes for IPv6 default to a metric of 1024 (IP6_RT_PRIO_USER)
 #   so our unreachable default should be below that
-RT_METRIC=8192
+RT_METRIC=4278198272
 
 # Allowed table id range
 TBID_MIN=1001
