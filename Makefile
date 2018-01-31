@@ -22,6 +22,9 @@ RPMCMD=/usr/bin/rpmbuild -bb --define '_topdir $(PROJDIR)/rpmbuild' \
 default:
 	@echo "Nothing to build"
 
+deb:
+	dpkg-buildpackage -uc -us
+
 rpm:
 	@ echo "=======Building $(RPMNAME) RPM=======" ; \
 	$(RPMCMD) -bb rpm/$(RPMNAME).spec && \
