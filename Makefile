@@ -48,3 +48,14 @@ uninstall:
 	rm -f $(DESTDIR)/lib/systemd/system-generators/systemd-vrf-generator
 	rm -f $(DESTDIR)/etc/dhcp/dhclient-exit-hooks.d/vrf
 	rm -f $(DESTDIR)/var/lib/ifupdown2/policy.d/vrf.json
+
+help:
+	@echo 'Targets:'
+	@echo '  install		- Install files in current filesystem.'
+	@echo '         		  Path prefix can be set via DESTDIR'
+	@echo '  uninstall		- Remove files from current filesystem'
+	@echo '         		  Path prefix can be set via DESTDIR'
+	@echo ''
+	@echo '  rpm    		- Create an rpm package that can be installed'
+	@echo '  deb    		- Create an debian package that can be installed'
+	@echo ''
