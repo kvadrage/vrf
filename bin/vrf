@@ -36,12 +36,6 @@ function dev_exists
 	ip link show dev ${1} >/dev/null 2>&1
 }
 
-function get_comm
-{
-	[ ! -f /proc/$1/status ] && return
-	awk '$1 == "Name:" {print $2}' /proc/$1/status
-}
-
 function normalize_vrf_name
 {
 	local vrf=$1
@@ -615,12 +609,7 @@ function task_list_vrf
 	printf "\nVRF: %-16s\n" $vrf
 	echo "-----------------------"
 
-	ip vrf pids ${vrf} |\
-	while read p
-	do
-		c=$(get_comm $p)
-		[ -n "$c" ] && printf "%-16s  %5s\n" $c $p
-	done
+	ip vrf pids ${vrf}
 }
 
 # show VRF for specific task
@@ -732,7 +721,7 @@ function task_exec
 		return 1
 	fi
 
-	ip vrf exec ${vrf} $*
+	exec ip vrf exec ${vrf} $*
 }
 
 function task_cmd
@@ -1029,7 +1018,7 @@ check_l3mdev_rule
 CMD=$1
 shift
 case "$CMD" in
-	ls|list|sh|show) vrf_list $*;;
+	ls|list|sh|show) ip vrf list $*;;
 
 	# bash profile scripts for checking if a vrf exists
 	# $PROG exists <vrf-name>
