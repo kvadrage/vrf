@@ -2,7 +2,8 @@ Source: vrf
 Section: net
 Priority: optional
 Maintainer: Cumulus Networks <dev-support@cumulusnetworks.com>
-Build-Depends: debhelper (>=9)
+Build-Depends: debhelper (>=9),
+ libnl-3-dev, libnl-route-3-dev, libnl-3-200, libnl-route-3-200
 Standards-Version: 3.9.6
 Homepage: http://www.cumulusnetworks.com
 

@@ -1,4 +1,11 @@
+#
+# Copyright 2017 Cumulus Networks, Inc. All rights reserved.
+#
+# Author: David Ahern, dsa@cumulusnetworks.com
+
 shell=/bin/bash
+
+SUBDIRS=lib-vrf
 
 #
 # Global proj. directory paths
@@ -21,6 +28,20 @@ RPMCMD=/usr/bin/rpmbuild -bb --define '_topdir $(PROJDIR)/rpmbuild' \
 
 default:
 	@echo "Nothing to build"
+
+all:
+	@set -e; \
+	for i in $(SUBDIRS); do \
+		echo; echo $$i; $(MAKE) -C $$i; \
+	done
+
+clean:
+	@set -e; \
+	for i in $(SUBDIRS); do \
+		echo; echo $$i; $(MAKE) -C $$i clean; \
+	done
+
+distclean: clean
 
 deb:
 	dpkg-buildpackage -uc -us
