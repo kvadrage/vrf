@@ -266,6 +266,8 @@ static int process_dns_config(const char *vrf, uint32_t table)
 
 	fp = fopen(RESOLVCONF, "r");
 	if (!fp) {
+		if (errno == ENOENT)
+			return 0;
 		fprintf(stderr, "Failed to open %s\n", RESOLVCONF);
 		return -1;
 	}
@@ -382,6 +384,8 @@ static int verify_dns_config(const char *vrf, uint32_t table)
 
 	fp = fopen(RESOLVCONF, "r");
 	if (!fp) {
+		if (errno == ENOENT)
+			return 0;
 		fprintf(stderr, "Failed to open %s\n",
 			RESOLVCONF);
 		return 1;
