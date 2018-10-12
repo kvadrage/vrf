@@ -56,9 +56,9 @@ function get_vrf_arg
 {
 	local vrf
 
-	vrf="${1//[^a-zA-Z0-9_-.]/}"
+	vrf="${1//[^a-zA-Z0-9_.\-]/}"
 	if [ "$vrf" != "$1" ]; then
-		echo "Invalid VRF" >&2
+		echo "Invalid VRF name" >&2
 		return 1
 	fi
 
