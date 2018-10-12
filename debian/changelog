@@ -1,3 +1,9 @@
+vrf (1.3) RELEASED; urgency=medium
+
+  * Miscellaneous fixes from Cumulus Linux 3.x branch
+
+ -- David Ahern <dsa@cumulusnetworks.com>  Fri, 12 Oct 2018 11:59:47 -0700
+
 vrf (1.2) RELEASED; urgency=medium
 
   * Correctly match Exec lines - from Benoît Knecht
