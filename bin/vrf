@@ -682,8 +682,7 @@ function task_set
 	fi
 	[ -z "$pid" ] && pid=$PPID
 
-	kill -0 $pid >/dev/null 2>&1
-	if [ $? -ne 0 ]; then
+	if [ ! -d /proc/$pid ]; then
 		echo "Process does not exist"
 		return 1
 	fi
