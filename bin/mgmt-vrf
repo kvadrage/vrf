@@ -43,17 +43,15 @@ function dev_get_master
 
 function mgmt_status
 {
-	local rc
+	local rc=1
 	local modstr
 
-	vrf exists $MGMT_VRF
-	rc=$?
-
-	# make sure mgmt device has at least 1 device enslaved
-	# otherwise it means mgmt is defined but not used
-	if [ $rc -eq 0 ]; then
+	n=$(ip -br link show dev ${MGMT_VRF} type vrf 2>/dev/null | wc -l)
+	if [ ${n} -eq 1 ]; then
+		# make sure mgmt device has at least 1 device enslaved
+		# otherwise it means mgmt is defined but not used
 		n=$(ip -br link show master $MGMT_VRF | wc -l)
-		[ $n -eq 0 ] && rc=1
+		[ $n -gt 0 ] && rc=0
 	fi
 
 	[ $rc -ne 0 ] && modstr="NOT "
