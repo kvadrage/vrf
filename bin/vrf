@@ -1013,6 +1013,7 @@ CGRPDIR=$(mount |awk '$0 ~ /type cgroup2/{print $3}')
 if [ -n "${CGRPDIR}" ]; then
 	VPATH=$(grep '::/' /proc/$$/cgroup)
 	VPATH=${VPATH/*::/}
+	VPATH=${VPATH/\/vrf/}
 	CGRPDIR=${CGRPDIR}${VPATH}/vrf
 fi
 
