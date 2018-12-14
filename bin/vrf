@@ -688,7 +688,9 @@ function task_set
 	fi
 
 	if [ -z "${CGRPDIR}" ]; then
-		echo "cgroup2 not mounted"
+		if [ "$vrf" != "default" ]; then
+			echo "cgroup2 not mounted; can not change vrf"
+		fi
 		return 1
 	fi
 
