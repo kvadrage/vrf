@@ -315,7 +315,7 @@ function vrf_verify_default_route
 	ip -6 route ls table ${tbid} | grep -q "unreachable default "
 	if [ $? -ne 0 ]; then
 		echo "    ERROR: IPv6 default route missing"
-		rc=${MISSING_IPV6_DEF_RT}
+		[ $rc -eq 0 ] && rc=${MISSING_IPV6_DEF_RT}
 	fi
 
 	if [ $rc -eq 0 ]; then
