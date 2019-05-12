@@ -695,7 +695,7 @@ function task_set
 	fi
 
 	if [ "$vrf" = "default" ]; then
-		echo $pid >> ${CGRPDIR}/cgroup.procs
+		 [ -f "${CGRPDIR}/cgroup.procs" ] && echo $pid >> ${CGRPDIR}/cgroup.procs
 	else
 		# cgroup has not been configured; use ip-vrf-exec to create
 		# the cgroup with bpf filter so we can set the task id
