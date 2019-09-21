@@ -699,9 +699,7 @@ function task_set
 	else
 		# cgroup has not been configured; use ip-vrf-exec to create
 		# the cgroup with bpf filter so we can set the task id
-		if [ ! -d ${CGRPDIR}/${vrf} ]; then
-			ip vrf exec ${vrf} id >/dev/null 2>&1
-		fi
+		ip vrf exec ${vrf} id >/dev/null 2>&1
 
 		vrf_cgroup_exists $vrf || return 1
 		echo $pid >> ${CGRPDIR}/${vrf}/cgroup.procs
